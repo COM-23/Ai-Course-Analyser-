@@ -921,37 +921,27 @@ class LocalHeuristicBrain {
 
 export async function POST(req: NextRequest) {
   try {
-    let pdfFile: File | null = null;
+    let pdfBase64: string | null = null;
     let additionalContext = "";
     
     let destinationCountry = "";
     let targetIntake = "";
     
-    const contentType = req.headers.get("content-type") || "";
     let counselorId = 1;
 
-    if (contentType.includes("multipart/form-data")) {
-      const formData = await req.formData();
-      pdfFile = formData.get("pdfFile") as File | null;
-      additionalContext = formData.get("additionalContext") as string || "";
-      destinationCountry = formData.get("destinationCountry") as string || "Not Decided";
-      targetIntake = formData.get("targetIntake") as string || "Not Decided";
-      if (formData.has("counselorId")) counselorId = parseInt(formData.get("counselorId") as string, 10);
-    } else if (contentType.includes("application/json")) {
-      const body = await req.json();
-      additionalContext = body.additionalContext || body.context || "";
-      destinationCountry = body.destinationCountry || body.manualCountry || "Not Decided";
-      targetIntake = body.targetIntake || body.manualIntake || "Not Decided";
-      if (body.counselorId) counselorId = parseInt(body.counselorId, 10);
-    }
+    const body = await req.json();
+    additionalContext = body.additionalContext || body.context || "";
+    destinationCountry = body.destinationCountry || body.manualCountry || "Not Decided";
+    targetIntake = body.targetIntake || body.manualIntake || "Not Decided";
+    if (body.counselorId) counselorId = parseInt(body.counselorId, 10);
+    if (body.pdfBase64) pdfBase64 = body.pdfBase64;
 
     let extractedText = "";
     
     // 1. SAFELY EXTRACT PDF TEXT if provided
-    if (pdfFile) {
+    if (pdfBase64) {
       try {
-        const arrayBuffer = await pdfFile.arrayBuffer();
-        const pdfBuffer = Buffer.from(arrayBuffer);
+        const pdfBuffer = Buffer.from(pdfBase64, 'base64');
         
         const pdfParse = require('pdf-parse');
         const resultData = await pdfParse(pdfBuffer);

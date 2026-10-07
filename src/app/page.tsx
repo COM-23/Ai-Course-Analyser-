@@ -322,22 +322,30 @@ export default function Home() {
     setError(null);
 
     try {
-      const formData = new FormData();
+      let pdfBase64 = null;
       if (inputType === "pdf" && file) {
-        formData.append("pdfFile", file);
+        pdfBase64 = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve((reader.result as string).split(',')[1]);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
       }
       
       const context = inputType === "text" ? manualText + "\n\n" + additionalContext : additionalContext;
-      formData.append("additionalContext", context);
-      formData.append("destinationCountry", destinationCountry);
-      formData.append("targetIntake", intake);
-      if (currentUser) {
-        formData.append("counselorId", currentUser.id.toString());
-      }
+      
+      const payload = {
+        pdfBase64,
+        additionalContext: context,
+        destinationCountry,
+        targetIntake: intake,
+        counselorId: currentUser ? currentUser.id : 1
+      };
 
       const res = await fetch("/api/analyze", {
         method: "POST",
-        body: formData,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
       });
 
       const data = await res.json();
