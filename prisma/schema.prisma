@@ -1,0 +1,30 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model StudentAnalysis {
+  id                   String   @id @default(uuid())
+  name                 String
+  cgpa                 String
+  degreeObjective      String
+  primaryDomain        String
+  testScores           String
+  destinationCountry   String
+  targetIntake         String
+  
+  studentSummary       String
+  strengths            String // Stored as JSON string
+  areasForImprovement  String // Stored as JSON string
+  careerOpportunities  String // Stored as JSON string
+  recommendedColleges  String // Stored as JSON string
+  visaDifficulty       String
+  keySkillsIdentified  String // Stored as JSON string
+  estimatedBudgetRange String
+  
+  createdAt            DateTime @default(now())
+}
