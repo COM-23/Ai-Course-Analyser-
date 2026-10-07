@@ -1,10 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { pipeline, env } from '@xenova/transformers';
 import db from '@/lib/db';
 import * as cheerio from 'cheerio';
 import google from 'googlethis';
-
-env.allowLocalModels = false;
 
 class PipelineSingleton {
   static task = 'text2text-generation';
@@ -12,7 +9,12 @@ class PipelineSingleton {
   static instance: any = null;
 
   static async getInstance() {
+    if (process.env.VERCEL) {
+       throw new Error("Local LLM is disabled on Vercel due to memory limits");
+    }
     if (this.instance === null) {
+      const { pipeline, env } = require('@xenova/transformers');
+      env.allowLocalModels = false;
       this.instance = await pipeline(this.task as any, this.model);
     }
     return this.instance;
@@ -951,22 +953,9 @@ export async function POST(req: NextRequest) {
         const arrayBuffer = await pdfFile.arrayBuffer();
         const pdfBuffer = Buffer.from(arrayBuffer);
         
-        const fs = require('fs');
-        const os = require('os');
-        const path = require('path');
-        const { execSync } = require('child_process');
-        
-        const tempPath = path.join(os.tmpdir(), `upload-${Date.now()}.pdf`);
-        fs.writeFileSync(tempPath, pdfBuffer);
-        
-        try {
-          const resultRaw = execSync(`node pdf-extractor.js "${tempPath}"`, { encoding: 'utf-8' });
-          const resultData = JSON.parse(resultRaw);
-          if (resultData.error) throw new Error(resultData.error);
-          extractedText = resultData.text || "";
-        } finally {
-          try { fs.unlinkSync(tempPath); } catch (e) {}
-        }
+        const pdfParse = require('pdf-parse');
+        const resultData = await pdfParse(pdfBuffer);
+        extractedText = resultData.text || "";
         
       } catch (parseError: any) {
         console.error("PDF Parsing failed. Error:", parseError.message || parseError);
