@@ -88,7 +88,7 @@ type AnalysisResult = {
 export default function Home() {
   const [activeTab, setActiveTab] = useState<"dashboard" | "analyzer" | "roster" | "settings">("analyzer");
   const [theme, setTheme] = useState<"dark" | "light">("dark");
-  const [settingsTab, setSettingsTab] = useState<"users" | "security" | "preferences">("users");
+  const [settingsTab, setSettingsTab] = useState<"users" | "security" | "preferences" | "database">("users");
   
   const [inputType, setInputType] = useState<"pdf" | "text">("pdf");
   const [file, setFile] = useState<File | null>(null);
