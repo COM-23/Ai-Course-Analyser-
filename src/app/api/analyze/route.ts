@@ -1052,7 +1052,7 @@ Counselor AI Summary:`;
             process.env.LAMBDA_TASK_ROOT ||
             (typeof process.cwd === 'function' && process.cwd().startsWith('/var/task'))
         );
-        const timeoutMs = isServerless ? 22000 : 90000;
+        const timeoutMs = isServerless ? 8500 : 90000;
 
         const ollamaResponse = await fetch(aiEndpoint, {
             method: 'POST',
