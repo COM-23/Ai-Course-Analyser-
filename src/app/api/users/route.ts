@@ -1,5 +1,6 @@
+export const dynamic = "force-dynamic";
 import { NextResponse } from 'next/server';
-import db from '@/lib/db';
+import { getDb } from "@/lib/db";
 import bcrypt from 'bcryptjs';
 
 const defaultUsers = [
@@ -20,15 +21,15 @@ const defaultUsers = [
 
 export async function GET() {
   try {
-    const stmt = db.prepare('SELECT id, name, username, role, createdAt FROM users');
+    const stmt = getDb().prepare('SELECT id, name, username, role, createdAt FROM users');
     let users = stmt.all();
 
     // Auto-seed if empty
     if (users.length === 0) {
       const defaultPasswordHash = await bcrypt.hash('password123', 10);
-      const insert = db.prepare('INSERT INTO users (name, username, passwordHash, role) VALUES (?, ?, ?, ?)');
+      const insert = getDb().prepare('INSERT INTO users (name, username, passwordHash, role) VALUES (?, ?, ?, ?)');
       
-      db.transaction((usersToInsert: any[]) => {
+      getDb().transaction((usersToInsert: any[]) => {
         for (const user of usersToInsert) {
           const username = user.name.toLowerCase().replace(/\s+/g, '');
           insert.run(user.name, username, defaultPasswordHash, user.role);
@@ -53,7 +54,7 @@ export async function POST(req: Request) {
     }
     
     // Check strong password policy
-    const settingsStmt = db.prepare('SELECT value FROM settings WHERE id = ?');
+    const settingsStmt = getDb().prepare('SELECT value FROM settings WHERE id = ?');
     const enforceStrongPwdRow = settingsStmt.get('enforceStrongPasswords') as any;
     const enforceStrongPwd = enforceStrongPwdRow ? JSON.parse(enforceStrongPwdRow.value) : false;
     
@@ -68,7 +69,7 @@ export async function POST(req: Request) {
     
     const passwordHash = await bcrypt.hash(password, 10);
     
-    const stmt = db.prepare('INSERT INTO users (name, username, passwordHash, role) VALUES (?, ?, ?, ?)');
+    const stmt = getDb().prepare('INSERT INTO users (name, username, passwordHash, role) VALUES (?, ?, ?, ?)');
     const info = stmt.run(name, username.toLowerCase(), passwordHash, role);
     
     return NextResponse.json({ id: info.lastInsertRowid, name, username, role }, { status: 201 });
@@ -83,7 +84,7 @@ export async function DELETE(req: Request) {
     const { id } = await req.json();
     if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
 
-    const stmt = db.prepare('DELETE FROM users WHERE id = ?');
+    const stmt = getDb().prepare('DELETE FROM users WHERE id = ?');
     stmt.run(id);
 
     return NextResponse.json({ success: true });

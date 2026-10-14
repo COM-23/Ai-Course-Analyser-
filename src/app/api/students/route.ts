@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import db from '@/lib/db';
+import { getDb } from "@/lib/db";
 import { jwtVerify } from 'jose';
 
 export const dynamic = 'force-dynamic';
@@ -29,14 +29,14 @@ export async function GET(req: Request) {
 
     let rows;
     if (payload.role === 'super_admin') {
-      rows = db.prepare(`
+      rows = getDb().prepare(`
         SELECT students.*, users.name as counselorName 
         FROM students 
         LEFT JOIN users ON students.counselor_id = users.id 
         ORDER BY students.createdAt DESC
       `).all();
     } else {
-      rows = db.prepare(`
+      rows = getDb().prepare(`
         SELECT students.*, users.name as counselorName 
         FROM students 
         LEFT JOIN users ON students.counselor_id = users.id 
@@ -58,7 +58,8 @@ export async function GET(req: Request) {
       keySkillsIdentified: JSON.parse(row.keySkillsIdentified),
       estimatedBudgetRange: row.estimatedBudgetRange,
       createdAt: row.createdAt,
-      counselorName: row.counselorName || 'Unknown Counselor'
+      counselorName: row.counselorName || 'Unknown Counselor',
+      comparisonData: row.comparisonData ? JSON.parse(row.comparisonData) : []
     }));
 
     return NextResponse.json(formattedRows);
@@ -74,7 +75,7 @@ export async function DELETE(req: Request) {
     if (!id) {
       return NextResponse.json({ error: 'Missing ID' }, { status: 400 });
     }
-    const stmt = db.prepare('DELETE FROM students WHERE id = ?');
+    const stmt = getDb().prepare('DELETE FROM students WHERE id = ?');
     stmt.run(id);
     return NextResponse.json({ success: true });
   } catch (error) {

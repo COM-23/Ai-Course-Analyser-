@@ -1,5 +1,6 @@
+export const dynamic = "force-dynamic";
 import { NextResponse } from 'next/server';
-import db from '@/lib/db';
+import { getDb } from "@/lib/db";
 import bcrypt from 'bcryptjs';
 import { SignJWT } from 'jose';
 
@@ -12,30 +13,43 @@ export async function POST(req: Request) {
     if (!username || !password) {
       return NextResponse.json({ error: 'Username and password required' }, { status: 400 });
     }
-
-    // Get settings
-    const settingsStmt = db.prepare('SELECT * FROM settings');
-    const settingsRows = settingsStmt.all() as any[];
-    const settings = settingsRows.reduce((acc, row) => ({ ...acc, [row.id]: JSON.parse(row.value) }), {});
-    
-    const maxAttemptsStr = settings.maxLoginAttempts || "3 Attempts";
-    const maxAttempts = parseInt(maxAttemptsStr.split(' ')[0]) || 3;
-    
-    const timeoutStr = settings.sessionTimeout || "24 Hours";
+ 
+    // Get settings safely with defaults
+    let maxAttempts = 3;
     let expirationTime = '24h';
     let maxAgeSeconds = 60 * 60 * 24;
-    
-    if (timeoutStr.includes('Minutes')) {
-      const mins = parseInt(timeoutStr.split(' ')[0]);
-      expirationTime = `${mins}m`;
-      maxAgeSeconds = mins * 60;
-    } else if (timeoutStr.includes('Hours')) {
-      const hrs = parseInt(timeoutStr.split(' ')[0]);
-      expirationTime = `${hrs}h`;
-      maxAgeSeconds = hrs * 60 * 60;
+    try {
+      const settingsStmt = getDb().prepare('SELECT * FROM settings');
+      const settingsRows = settingsStmt.all() as any[];
+      const settings: any = {};
+      for (const row of settingsRows) {
+        try { settings[row.id] = JSON.parse(row.value); } catch {}
+      }
+      
+      const attemptsVal = settings.maxFailedAttempts || settings.maxLoginAttempts || "3 Attempts";
+      maxAttempts = parseInt(String(attemptsVal).split(' ')[0]) || 3;
+      
+      const rawTimeout = settings.sessionTimeout || "24 Hours";
+      const timeoutStr = String(rawTimeout);
+      if (timeoutStr.includes('Minutes')) {
+        const mins = parseInt(timeoutStr.split(' ')[0]) || 30;
+        expirationTime = `${mins}m`;
+        maxAgeSeconds = mins * 60;
+      } else if (timeoutStr.includes('Hours')) {
+        const hrs = parseInt(timeoutStr.split(' ')[0]) || 24;
+        expirationTime = `${hrs}h`;
+        maxAgeSeconds = hrs * 60 * 60;
+      } else if (!isNaN(Number(timeoutStr))) {
+        // If it's a raw number of minutes like "30"
+        const mins = Number(timeoutStr) || 30;
+        expirationTime = `${mins}m`;
+        maxAgeSeconds = mins * 60;
+      }
+    } catch (e) {
+      console.warn("Could not read settings from DB, using safe defaults", e);
     }
 
-    const stmt = db.prepare('SELECT * FROM users WHERE username = ?');
+    const stmt = getDb().prepare('SELECT * FROM users WHERE username = ?');
     const user = stmt.get(username.toLowerCase()) as any;
 
     if (!user) {
@@ -65,7 +79,11 @@ export async function POST(req: Request) {
         lockoutStr = d.toISOString();
       }
       
-      db.prepare('UPDATE users SET failedLoginAttempts = ?, lockoutUntil = ? WHERE id = ?').run(attempts, lockoutStr, user.id);
+      try {
+        getDb().prepare('UPDATE users SET failedLoginAttempts = ?, lockoutUntil = ? WHERE id = ?').run(attempts, lockoutStr, user.id);
+      } catch (e) {
+        console.warn("Could not update failedLoginAttempts in DB:", e);
+      }
       
       if (lockoutStr) {
         return NextResponse.json({ error: `Account locked due to too many failed attempts.` }, { status: 403 });
@@ -73,8 +91,12 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Invalid username or password' }, { status: 401 });
     }
 
-    // Success! Reset attempts
-    db.prepare('UPDATE users SET failedLoginAttempts = 0, lockoutUntil = NULL WHERE id = ?').run(user.id);
+    // Success! Reset attempts safely
+    try {
+      getDb().prepare('UPDATE users SET failedLoginAttempts = 0, lockoutUntil = NULL WHERE id = ?').run(user.id);
+    } catch (e) {
+      console.warn("Could not reset failedLoginAttempts in DB:", e);
+    }
 
     // Create JWT
     const token = await new SignJWT({ 
@@ -100,14 +122,15 @@ export async function POST(req: Request) {
 
     response.cookies.set('auth_token', token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-      maxAge: maxAgeSeconds
+      secure: false,
+      sameSite: 'lax',
+      maxAge: maxAgeSeconds,
+      path: '/'
     });
 
     return response;
-  } catch (error) {
+  } catch (error: any) {
     console.error('Login error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json({ error: error?.message ? `Server error: ${error.message}` : 'Internal server error' }, { status: 500 });
   }
 }

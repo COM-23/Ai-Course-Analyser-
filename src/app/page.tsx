@@ -1,5 +1,5 @@
 "use client";
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, Fragment } from "react";
 import AdminDatabase from "./admin/database/page";
 import { 
   Upload, 
@@ -60,6 +60,7 @@ type CollegeMatch = {
 
 type AnalysisResult = {
   id?: number;
+  comparisonData?: any[];
   createdAt?: string;
   studentDetails?: {
     name?: string;
@@ -115,14 +116,28 @@ export default function Home() {
   // Target Configs
   const [destinationCountry, setDestinationCountry] = useState("Not Decided");
   const [intake, setIntake] = useState("Not Decided");
+  const [appendMode, setAppendMode] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [history, setHistory] = useState<AnalysisResult[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [expandedCollegeIdx, setExpandedCollegeIdx] = useState<number | null>(null);
+  const [compareResults, setCompareResults] = useState<AnalysisResult[]>([]);
+  const [compareExpandedCollegeIdx, setCompareExpandedCollegeIdx] = useState<number | null>(null);
+  const [compareMode, setCompareMode] = useState(false);
+  const [compareCountries, setCompareCountries] = useState<string[]>([]);
+  const [compareLoading, setCompareLoading] = useState(false);
+  const [compareProgress, setCompareProgress] = useState(0);
+  const [activeCompareTab, setActiveCompareTab] = useState(0);
+  // Legacy compat shim so existing code that reads compareResult still works
+  const compareResult = compareResults[activeCompareTab] ?? null;
+  const setCompareResult = (r: AnalysisResult | null) => {
+    if (r) setCompareResults(prev => { const next = [...prev]; next[activeCompareTab] = r; return next; });
+  };
   const [searchQuery, setSearchQuery] = useState("");
   const [filterDomain, setFilterDomain] = useState("All");
+  const [filterExactCourse, setFilterExactCourse] = useState("All");
   const [filterFromDate, setFilterFromDate] = useState("");
   const [filterToDate, setFilterToDate] = useState("");
   const [filterIntakeTerm, setFilterIntakeTerm] = useState("All");
@@ -130,7 +145,6 @@ export default function Home() {
   const [sortBy, setSortBy] = useState("recent");
   const [appUsers, setAppUsers] = useState<any[]>([]);
   const [currentUser, setCurrentUser] = useState<any>(null);
-  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const [loginUsername, setLoginUsername] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [loginError, setLoginError] = useState<string | null>(null);
@@ -195,12 +209,11 @@ export default function Home() {
     fetch('/api/auth/me')
       .then(res => res.json())
       .then(data => {
-        if (data.authenticated) {
+        if (data && data.authenticated && data.user) {
           setCurrentUser(data.user);
         }
       })
-      .catch(err => console.error('Auth error:', err))
-      .finally(() => setIsCheckingAuth(false));
+      .catch(err => console.error('Auth error:', err));
   }, []);
 
   useEffect(() => {
@@ -258,13 +271,17 @@ export default function Home() {
   }, [currentUser]);
 
   const standardDomains = [
-    "science_technology", "commerce_management", "medicine_allied_health", 
-    "arts_humanities_social_sciences", "law", "education", 
-    "hospitality_tourism_events", "performing_arts_media", "agriculture_veterinary"
+    "science_technology", "business_management", "commerce_management", 
+    "arts_humanities", "arts_humanities_social_sciences", "medicine_allied_health", 
+    "law", "education", "hospitality_tourism_events", 
+    "performing_arts_media", "agriculture_veterinary"
   ];
   
   const historyDomains = history.map(h => h.studentDetails?.primaryDomain || "General");
   const uniqueDomains = Array.from(new Set([...standardDomains, ...historyDomains]));
+
+  const historyExactCourses = history.map(h => (h.studentDetails as any)?.exactCourse).filter(Boolean);
+  const uniqueExactCourses = Array.from(new Set(historyExactCourses));
 
   // Calculate global stats
   const totalStudents = history.length;
@@ -339,7 +356,8 @@ export default function Home() {
         additionalContext: context,
         destinationCountry,
         targetIntake: intake,
-        counselorId: currentUser ? currentUser.id : 1
+        counselorId: currentUser ? currentUser.id : 1,
+        existingColleges: appendMode && result ? result.recommendedColleges : undefined
       };
 
       const res = await fetch("/api/analyze", {
@@ -352,6 +370,10 @@ export default function Home() {
 
       if (!res.ok) {
         throw new Error(data.error || "Analysis failed");
+      }
+
+      if (data.dbError) {
+        alert("CRITICAL WARNING: The AI analysis succeeded, but saving to the database FAILED! Error: " + data.dbError + ". This means the student will disappear when you refresh. Please fix your database file permissions (it might be owned by root).");
       }
 
       setResult(data);
@@ -372,6 +394,62 @@ export default function Home() {
     }
   };
 
+
+  const handleCompareAnalyze = async () => {
+    if (inputType === "pdf" && !file) return;
+    if (compareCountries.length === 0) return;
+    setCompareExpandedCollegeIdx(null);
+    setCompareLoading(true);
+    setCompareProgress(0);
+    setCompareResults([]);
+    setActiveCompareTab(0);
+    try {
+      let pdfBase64: string | null = null;
+      if (inputType === "pdf" && file) {
+        pdfBase64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve((reader.result as string).split(',')[1]);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+      }
+      const context = inputType === "text" ? manualText + "\n\n" + additionalContext : additionalContext;
+      const accumulated: AnalysisResult[] = [];
+      
+      for (let i = 0; i < compareCountries.length; i++) {
+        const country = compareCountries[i];
+        const payload = {
+          pdfBase64,
+          additionalContext: context,
+          destinationCountry: country,
+          targetIntake: intake,
+          counselorId: currentUser ? currentUser.id : 1,
+          primaryStudentId: result?.id ?? null,
+          compareCountryIndex: i,
+          totalCompareCountries: compareCountries.length,
+        };
+        const res = await fetch("/api/analyze", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || `Analysis failed for ${country}`);
+        if (data.dbError) {
+          alert(`CRITICAL WARNING: Saving ${country} comparison to the database FAILED! Error: ${data.dbError}`);
+        }
+        accumulated.push(data);
+        setCompareResults([...accumulated]);
+        setCompareProgress(Math.round(((i + 1) / compareCountries.length) * 100));
+      }
+    } catch (err) {
+      console.error(err);
+      setError((err as Error).message || "An unexpected error occurred in comparison.");
+    } finally {
+      setCompareLoading(false);
+    }
+  };
+
   const handleReset = () => {
     setResult(null);
     setFile(null);
@@ -380,6 +458,14 @@ export default function Home() {
     setAdditionalContext("");
     setError(null);
     setExpandedCollegeIdx(null);
+    setCompareMode(false);
+    setCompareResults([]);
+    setCompareCountries([]);
+    setCompareExpandedCollegeIdx(null);
+    setActiveCompareTab(-1);
+    setDestinationCountry("Not Decided");
+    setIntake("Not Decided");
+    setInputType("pdf");
   };
 
   const handleViewStudent = (student: AnalysisResult) => {
@@ -389,6 +475,15 @@ export default function Home() {
       setManualText(student.studentDetails.originalContext);
       setFile(null);
       setPdfUrl(null);
+    }
+    if (student.comparisonData && student.comparisonData.length > 0) {
+      setCompareMode(true);
+      setCompareResults(student.comparisonData);
+      setCompareCountries(student.comparisonData.map(c => c.compareCountry || "Unknown"));
+    } else {
+      setCompareMode(false);
+      setCompareResults([]);
+      setCompareCountries([]);
     }
     setActiveTab("analyzer");
   };
@@ -503,6 +598,7 @@ export default function Home() {
     
     const matchesSearch = name.includes(query) || domain.includes(query) || country.includes(query);
     const matchesFilter = filterDomain === "All" || student.studentDetails?.primaryDomain?.toLowerCase() === filterDomain.toLowerCase();
+    const matchesExactCourse = filterExactCourse === "All" || (student.studentDetails as any)?.exactCourse === filterExactCourse;
     
     let matchesDate = true;
     if (filterFromDate && student.createdAt) {
@@ -522,7 +618,7 @@ export default function Home() {
        matchesYear = intake.includes(filterIntakeYear);
     }
     
-    return matchesSearch && matchesFilter && matchesDate && matchesTerm && matchesYear;
+    return matchesSearch && matchesFilter && matchesExactCourse && matchesDate && matchesTerm && matchesYear;
   });
 
   const sortedHistory = [...filteredHistory].sort((a, b) => {
@@ -537,13 +633,6 @@ export default function Home() {
     }
   });
 
-  if (isCheckingAuth) {
-    return (
-      <div className="min-h-screen bg-[#0A0A0B] flex items-center justify-center text-indigo-400 font-bold">
-        <Sparkles className="w-8 h-8 animate-spin" />
-      </div>
-    );
-  }
 
   if (!currentUser) {
     return (
@@ -715,7 +804,7 @@ export default function Home() {
         <div className="flex-1 flex gap-6 min-h-0">
           
           {/* Left Panel: Input & Controls */}
-          <div className="w-full lg:w-[40%] flex flex-col gap-6">
+          {!compareMode && (<div className="w-full lg:w-[40%] flex flex-col gap-6">
             
             {/* Input Selection Card */}
             <div className="bg-[#111113]/80 backdrop-blur-xl border border-white/5 rounded-3xl p-6 shadow-2xl flex flex-col min-h-0 flex-1">
@@ -814,6 +903,11 @@ export default function Home() {
                 </div>
               </div>
 
+              <div className="flex items-center gap-2 py-2">
+                <input type="checkbox" id="appendMode" checked={appendMode} onChange={(e) => setAppendMode(e.target.checked)} className="w-4 h-4 rounded border-white/10 bg-black/40 text-indigo-500 focus:ring-indigo-500/50" />
+                <label htmlFor="appendMode" className="text-xs text-slate-400 font-medium">Append new results to current list (Side-by-side comparison)</label>
+              </div>
+
               <button 
                 onClick={handleAnalyze} 
                 disabled={loading}
@@ -836,8 +930,10 @@ export default function Home() {
             
           </div>
 
+          )} {/* End Left Panel */}
+
           {/* Right Panel: Intelligence Output */}
-          <div className="w-full lg:w-[60%] bg-[#111113]/80 backdrop-blur-xl border border-white/5 rounded-3xl shadow-2xl overflow-hidden flex flex-col h-full relative">
+          <div className={`w-full ${compareMode ? "lg:w-full" : "lg:w-[60%]"} bg-[#111113]/80 backdrop-blur-xl border border-white/5 rounded-3xl shadow-2xl overflow-hidden flex flex-col h-full relative`}>
             
             {/* Header */}
             <div className="px-8 py-6 border-b border-white/5 bg-black/20 flex justify-between items-center z-10">
@@ -849,6 +945,13 @@ export default function Home() {
               </h3>
               {result && (
                 <div className="flex gap-2">
+
+                  <button 
+                    onClick={() => { setCompareMode(!compareMode); setCompareResult(null); }}
+                    className="px-3 py-1 bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/30 rounded-full text-[10px] font-bold uppercase tracking-wider transition-colors"
+                  >
+                    {compareMode ? "Close Compare" : "Side-by-Side Analysis"}
+                  </button>
                   <button 
                     onClick={exportToPDF} 
                     disabled={isExporting} 
@@ -865,6 +968,55 @@ export default function Home() {
             </div>
 
             <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
+
+              {compareMode && compareResults.length === 0 && (
+                <div className="w-full p-6 border border-indigo-500/30 rounded-2xl bg-indigo-500/5 mb-8 animate-in fade-in duration-300">
+                  <h4 className="text-sm font-bold text-indigo-300 uppercase tracking-widest mb-4 flex items-center gap-2">
+                    <span>🌍</span> Select Countries to Compare (up to 15)
+                  </h4>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 mb-6">
+                    {["USA", "Canada", "United Kingdom", "Australia", "New Zealand", "Germany", "Spain", "France", "Ireland", "Poland", "UAE/Middle East", "Singapore/APJ", "Malaysia", "Italy", "Japan"].map(c => {
+                      const checked = compareCountries.includes(c);
+                      return (
+                        <label key={c} className={`flex items-center gap-2 p-2.5 rounded-xl border cursor-pointer transition-all select-none text-xs font-medium ${checked ? 'bg-indigo-500/20 border-indigo-500/50 text-indigo-300' : 'bg-black/30 border-white/5 text-slate-400 hover:border-indigo-500/30'}`}>
+                          <input
+                            type="checkbox"
+                            className="accent-indigo-500 w-3.5 h-3.5"
+                            checked={checked}
+                            onChange={() => {
+                              if (checked) {
+                                setCompareCountries(prev => prev.filter(x => x !== c));
+                              } else if (compareCountries.length < 15) {
+                                setCompareCountries(prev => [...prev, c]);
+                              }
+                            }}
+                          />
+                          {c}
+                        </label>
+                      );
+                    })}
+                  </div>
+                  <div className="flex items-center justify-between gap-4">
+                    <p className="text-xs text-slate-500">{compareCountries.length}/15 countries selected — each will generate 15 university matches and be saved to this student&apos;s profile.</p>
+                    <button
+                      onClick={handleCompareAnalyze}
+                      disabled={compareLoading || compareCountries.length === 0}
+                      className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold rounded-xl transition-all shadow-lg shadow-indigo-500/20 text-sm whitespace-nowrap"
+                    >
+                      {compareLoading ? `Running... ${compareProgress}%` : `Run Comparison (${compareCountries.length})`}
+                    </button>
+                  </div>
+                  {compareLoading && (
+                    <div className="mt-4">
+                      <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
+                        <div className="h-full bg-indigo-500 transition-all duration-500 rounded-full" style={{ width: `${compareProgress}%` }} />
+                      </div>
+                      <p className="text-[10px] text-slate-500 mt-1">{compareProgress}% — fetching university data for each country...</p>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {error && (
                 <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-2xl flex items-center gap-3 text-red-400 text-sm">
                   <AlertCircle className="w-5 h-5 shrink-0" />
@@ -888,19 +1040,48 @@ export default function Home() {
                 </div>
               )}
 
-              {result && (
-                <div ref={reportRef} className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 p-4 -m-4 bg-[#111113] rounded-2xl">
+              {/* Country Tabs when compare results exist */}
+              {compareResults.length > 0 && (
+                <div className="flex items-center gap-2 mb-6 flex-wrap">
+                  <button
+                    onClick={() => setActiveCompareTab(-1)}
+                    className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${activeCompareTab === -1 ? 'bg-white/10 text-white' : 'text-slate-500 hover:text-slate-300'}`}
+                  >
+                    🏠 Primary
+                  </button>
+                  {compareResults.map((cr: any, ci: number) => (
+                    <button
+                      key={ci}
+                      onClick={() => setActiveCompareTab(ci)}
+                      className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${activeCompareTab === ci ? 'bg-indigo-500/30 text-indigo-300 border border-indigo-500/40' : 'text-slate-500 hover:text-slate-300'}`}
+                    >
+                      🌍 {compareCountries[ci]}
+                      <span className="px-1.5 py-0.5 bg-white/10 rounded-md text-[9px]">{cr.recommendedColleges?.length ?? 0}</span>
+                    </button>
+                  ))}
+                  <button
+                    onClick={() => { setCompareResults([]); setActiveCompareTab(0); setCompareCountries([]); }}
+                    className="ml-auto px-3 py-1.5 rounded-xl text-xs font-bold text-rose-400 hover:bg-rose-500/10 transition-all border border-rose-500/20"
+                  >
+                    ✕ Clear
+                  </button>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 w-full">
+                {[activeCompareTab === -1 ? result : (compareResults.length > 0 ? (compareResults[activeCompareTab] ?? result) : result)].filter(Boolean).map((res: any, viewIdx: number) => (
+                <div key={viewIdx} ref={viewIdx === 0 ? reportRef : undefined} className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 p-4 -m-4 bg-[#111113] rounded-2xl">
                   
                   {/* Student Profile Header */}
                   <div className="flex items-center gap-4 mb-6 pb-6 border-b border-white/5">
                     <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-indigo-500 to-fuchsia-500 p-px shadow-lg shadow-indigo-500/20">
                       <div className="w-full h-full bg-[#111113] rounded-2xl flex items-center justify-center text-xl font-black text-white">
-                        {result.studentDetails?.name ? result.studentDetails.name.charAt(0) : "U"}
+                        {res.studentDetails?.name ? res.studentDetails.name.charAt(0) : "U"}
                       </div>
                     </div>
                     <div>
-                      <h2 className="text-2xl font-black text-white">{result.studentDetails?.name || "Unknown Student"}</h2>
-                      <p className="text-sm font-bold text-indigo-400">{result.studentDetails?.primaryDomain} Applicant</p>
+                      <h2 className="text-2xl font-black text-white">{res.studentDetails?.name || "Unknown Student"}</h2>
+                      <p className="text-sm font-bold text-indigo-400">{res.studentDetails?.primaryDomain} Applicant</p>
                     </div>
                   </div>
 
@@ -908,40 +1089,40 @@ export default function Home() {
                   <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
                     <div className="bg-black/40 border border-white/5 p-4 rounded-2xl flex flex-col justify-center">
                       <h5 className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">CGPA</h5>
-                      <p className="text-xl font-black text-white">{result.studentDetails?.cgpa} <span className="text-xs font-bold text-slate-600">/ 10</span></p>
+                      <p className="text-xl font-black text-white">{res.studentDetails?.cgpa} <span className="text-xs font-bold text-slate-600">/ 10</span></p>
                     </div>
                     <div className="bg-black/40 border border-white/5 p-4 rounded-2xl flex flex-col justify-center">
                       <h5 className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Degree Obj</h5>
-                      <p className="text-xs font-bold text-indigo-300 leading-snug">{result.studentDetails?.degreeObjective}</p>
+                      <p className="text-xs font-bold text-indigo-300 leading-snug">{res.studentDetails?.degreeObjective}</p>
                     </div>
                     <div className="bg-black/40 border border-white/5 p-4 rounded-2xl flex flex-col justify-center">
                       <h5 className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Country</h5>
-                      <p className="text-xs font-bold text-indigo-300 leading-snug">{result.studentDetails?.destinationCountry}</p>
+                      <p className="text-xs font-bold text-indigo-300 leading-snug">{res.studentDetails?.destinationCountry}</p>
                     </div>
                     <div className="bg-black/40 border border-white/5 p-4 rounded-2xl flex flex-col justify-center">
                       <h5 className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Target Intake</h5>
-                      <p className="text-xs font-bold text-indigo-300 leading-snug">{result.studentDetails?.targetIntake}</p>
+                      <p className="text-xs font-bold text-indigo-300 leading-snug">{res.studentDetails?.targetIntake}</p>
                     </div>
                     <div className="bg-black/40 border border-white/5 p-4 rounded-2xl flex flex-col justify-center">
                       <h5 className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Domain</h5>
-                      <p className="text-xs font-bold text-indigo-300 leading-snug">{result.studentDetails?.primaryDomain}</p>
+                      <p className="text-xs font-bold text-indigo-300 leading-snug">{res.studentDetails?.primaryDomain}</p>
                     </div>
                     
                     <div className="bg-black/40 border border-white/5 p-4 rounded-2xl flex flex-col justify-center">
                       <h5 className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Work Exp</h5>
-                      <p className="text-xs font-bold text-indigo-300 leading-snug">{result.studentDetails?.workExperience || "None"}</p>
+                      <p className="text-xs font-bold text-indigo-300 leading-snug">{res.studentDetails?.workExperience || "None"}</p>
                     </div>
                     <div className="bg-black/40 border border-white/5 p-4 rounded-2xl flex flex-col justify-center">
                       <h5 className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Backlogs</h5>
-                      <p className="text-xs font-bold text-indigo-300 leading-snug">{result.studentDetails?.backlogs || "0"}</p>
+                      <p className="text-xs font-bold text-indigo-300 leading-snug">{res.studentDetails?.backlogs || "0"}</p>
                     </div>
                     <div className="bg-black/40 border border-white/5 p-4 rounded-2xl flex flex-col justify-center">
                       <h5 className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Visa Status</h5>
-                      <p className="text-xs font-bold text-indigo-300 leading-snug">{result.studentDetails?.visaStatus || "Not Specified"}</p>
+                      <p className="text-xs font-bold text-indigo-300 leading-snug">{res.studentDetails?.visaStatus || "Not Specified"}</p>
                     </div>
                     <div className="bg-black/40 border border-white/5 p-4 rounded-2xl flex flex-col justify-center lg:col-span-2">
                       <h5 className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Test Scores</h5>
-                      <p className="text-xs font-bold text-indigo-300 leading-snug">{result.studentDetails?.testScores}</p>
+                      <p className="text-xs font-bold text-indigo-300 leading-snug">{res.studentDetails?.testScores}</p>
                     </div>
                   </div>
 
@@ -952,8 +1133,8 @@ export default function Home() {
                       <h4 className="text-xs font-bold text-indigo-400 uppercase tracking-widest mb-4 flex items-center gap-2">
                         <Sparkles className="w-4 h-4" /> Executive Summary
                       </h4>
-                      <p className="text-sm text-slate-300 leading-relaxed font-medium">
-                        {result.studentSummary}
+                      <p className="text-sm text-slate-300 leading-relaxed font-medium whitespace-pre-wrap">
+                        {res.studentSummary}
                       </p>
                     </div>
                     
@@ -964,7 +1145,7 @@ export default function Home() {
                       </div>
                       <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Calculated Budget</h4>
                       <p className="text-sm font-black text-emerald-400 leading-tight">
-                        {result.estimatedBudgetRange}
+                        {res.estimatedBudgetRange}
                       </p>
                     </div>
                   </div>
@@ -974,7 +1155,7 @@ export default function Home() {
                     <h4 className="text-sm font-black text-white mb-4 flex items-center gap-2">
                       <MapPin className="w-4 h-4 text-indigo-400" /> Recommended Institutions
                       <span className="ml-2 px-2.5 py-0.5 bg-white/10 text-slate-300 rounded-full text-[10px] font-bold">
-                        {result.recommendedColleges.length} Matches
+                        {res.recommendedColleges.length} Matches
                       </span>
                     </h4>
                     
@@ -995,8 +1176,8 @@ export default function Home() {
                       </div>
                     </div>
                     
-                    <div className="space-y-4">
-                      {result.recommendedColleges.length === 0 ? (
+                    <div className="mt-4 w-full overflow-x-auto custom-scrollbar border border-white/10 rounded-2xl bg-[#111113]">
+                      {res.recommendedColleges.length === 0 ? (
                         <div className="bg-black/40 border border-rose-500/30 rounded-2xl p-6 text-center shadow-sm">
                           <AlertCircle className="w-8 h-8 text-rose-400 mx-auto mb-3" />
                           <h4 className="text-white font-bold mb-2">No Matching Universities Found</h4>
@@ -1005,101 +1186,84 @@ export default function Home() {
                           </p>
                         </div>
                       ) : (
-                        result.recommendedColleges.map((uni, idx) => (
-                          <div 
-                            key={idx} 
-                            onClick={() => setExpandedCollegeIdx(expandedCollegeIdx === idx ? null : idx)}
-                          className="group bg-black/40 hover:bg-[#1A1A1D] border border-white/5 hover:border-indigo-500/30 rounded-2xl p-5 transition-all shadow-sm cursor-pointer"
-                        >
-                          <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
-                            <div className="flex-1">
-                              <div className="flex items-center gap-3 mb-2">
-                                <h5 className="text-base font-black text-white group-hover:text-indigo-400 transition-colors">
-                                  {uni.name}
-                                </h5>
-                                <span className={`px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider rounded-md border
-                                  ${uni.category === "Reach" ? "bg-rose-500/10 text-rose-400 border-rose-500/20" : 
-                                    uni.category === "Target" ? "bg-amber-500/10 text-amber-400 border-amber-500/20" : 
-                                    "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"}`}
+                        <table className="w-full text-left border-collapse min-w-[800px]">
+                          <thead>
+                            <tr className="border-b border-white/10 bg-black/60">
+                              <th className="p-4 text-xs font-bold text-slate-300 uppercase tracking-wider">Institution</th>
+                              <th className="p-4 text-xs font-bold text-slate-300 uppercase tracking-wider text-center">Match</th>
+                              <th className="p-4 text-xs font-bold text-slate-300 uppercase tracking-wider text-center">Category</th>
+                              <th className="p-4 text-xs font-bold text-slate-300 uppercase tracking-wider">Tuition/Yr</th>
+                              <th className="p-4 text-xs font-bold text-slate-300 uppercase tracking-wider">Deadline</th>
+                              <th className="p-4 text-xs font-bold text-slate-300 uppercase tracking-wider">Acc. Rate</th>
+                              <th className="p-4 text-xs font-bold text-slate-300 uppercase tracking-wider text-center">Min CGPA</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-white/5">
+                            {res.recommendedColleges?.map((uni: any, idx: number) => (
+                              <Fragment key={idx}>
+                                <tr 
+                                  onClick={() => { const setFn = viewIdx === 0 ? setExpandedCollegeIdx : setCompareExpandedCollegeIdx; const cur = viewIdx === 0 ? expandedCollegeIdx : compareExpandedCollegeIdx; setFn(cur === idx ? null : idx); }}
+                                  className="group hover:bg-[#1A1A1D] cursor-pointer transition-colors"
                                 >
-                                  {uni.category}
-                                </span>
-                              </div>
-                              <p className="text-xs text-slate-400 mb-3 flex items-center gap-1.5">
-                                <MapPin className="w-3 h-3" /> {uni.location}
-                              </p>
-                              
-                              <div className="bg-black/30 rounded-xl p-3 border border-white/5 mb-4">
-                                <p className="text-xs font-bold text-slate-300 mb-1">Recommended Course:</p>
-                                <p className="text-sm font-medium text-fuchsia-300">{uni.recommendedCourse}</p>
-                              </div>
-                              
-                              <p className="text-sm text-slate-400 leading-relaxed border-l-2 border-white/10 pl-3 italic">
-                                "{uni.rationale}"
-                              </p>
-                            </div>
-                            
-                            <div className="md:w-32 flex flex-col items-end justify-center shrink-0">
-                              <div className="relative w-16 h-16 flex items-center justify-center mb-2">
-                                <svg className="w-full h-full transform -rotate-90">
-                                  <circle cx="32" cy="32" r="28" fill="none" className="stroke-white/5" strokeWidth="6" />
-                                  <circle 
-                                    cx="32" cy="32" r="28" fill="none" 
-                                    className={`stroke-current ${uni.matchPercentage > 85 ? 'text-emerald-400' : uni.matchPercentage > 75 ? 'text-amber-400' : 'text-rose-400'}`}
-                                    strokeWidth="6" 
-                                    strokeDasharray="175" 
-                                    strokeDashoffset={175 - (175 * uni.matchPercentage) / 100}
-                                    strokeLinecap="round" 
-                                  />
-                                </svg>
-                                <span className="absolute text-sm font-black text-white">{uni.matchPercentage}%</span>
-                              </div>
-                              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest text-right">Match Score</span>
-                            </div>
-                          </div>
-                          
-                          {/* Expanded Details */}
-                          {expandedCollegeIdx === idx && (
-                            <div className="mt-6 pt-6 border-t border-white/10 grid grid-cols-2 md:grid-cols-5 gap-4 animate-in slide-in-from-top-2 fade-in duration-200">
-                              <div className="bg-black/30 rounded-xl p-4 border border-white/5">
-                                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Tuition</p>
-                                <p className="text-sm font-black text-indigo-300">
-                                  {new Intl.NumberFormat('en-US', { style: 'currency', currency: uni.currency || 'USD', maximumFractionDigits: 0 }).format(uni.tuition)}/yr
-                                  <span className="block text-xs font-bold text-emerald-400 mt-1">{uni.tuitionConverted}</span>
-                                </p>
-                              </div>
-                              <div className="bg-black/30 rounded-xl p-4 border border-white/5">
-                                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Deadline</p>
-                                <p className="text-sm font-black text-rose-300">{uni.applicationDeadline}</p>
-                              </div>
-                              <div className="bg-black/30 rounded-xl p-4 border border-white/5">
-                                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Acceptance</p>
-                                <p className="text-sm font-black text-indigo-300">{uni.acceptanceRate}</p>
-                              </div>
-                              <div className="bg-black/30 rounded-xl p-4 border border-white/5">
-                                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Min. CGPA</p>
-                                <p className="text-sm font-black text-indigo-300">{uni.minCgpa.toFixed(1)}/10</p>
-                              </div>
-                              <div className="bg-black/30 rounded-xl p-4 border border-white/5">
-                                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Setting</p>
-                                <p className="text-sm font-black text-indigo-300">{uni.campusSetting}</p>
-                              </div>
-                              
-                              <div className="col-span-2 md:col-span-5 bg-indigo-500/5 rounded-xl p-4 border border-indigo-500/10 mt-2">
-                                <p className="text-[10px] font-bold text-indigo-400/70 uppercase tracking-widest mb-2">Program Details</p>
-                                <p className="text-sm text-slate-300 leading-relaxed mb-3">{uni.courseDetails}</p>
-                                <div className="flex flex-wrap gap-2">
-                                  {uni.notablePrograms?.map((prog, pIdx) => (
-                                    <span key={pIdx} className="px-2 py-1 bg-white/5 border border-white/10 rounded text-[10px] text-slate-400 font-medium">
-                                      {prog}
+                                  <td className="p-4">
+                                    <div className="flex items-center gap-2">
+                                      <span className="font-bold text-white group-hover:text-indigo-400 transition-colors">{uni.name}</span>
+                                      {uni.isLiveScraped && <span className="text-[9px] bg-indigo-500/20 text-indigo-300 px-1.5 py-0.5 rounded border border-indigo-500/20 font-black">LIVE</span>}
+                                    </div>
+                                    <div className="text-[10px] text-slate-400 mt-1 flex items-center gap-1"><MapPin className="w-3 h-3" /> {uni.location}</div>
+                                  </td>
+                                  <td className="p-4 text-center">
+                                    <span className={`font-black text-sm ${uni.matchPercentage > 85 ? 'text-emerald-400' : uni.matchPercentage > 75 ? 'text-amber-400' : 'text-rose-400'}`}>{uni.matchPercentage}%</span>
+                                  </td>
+                                  <td className="p-4 text-center">
+                                    <span className={`px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider rounded-md border
+                                      ${uni.category === "Reach" ? "bg-rose-500/10 text-rose-400 border-rose-500/20" : 
+                                        uni.category === "Target" ? "bg-amber-500/10 text-amber-400 border-amber-500/20" : 
+                                        "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"}`}
+                                    >
+                                      {uni.category}
                                     </span>
-                                  ))}
-                                </div>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      )))}
+                                  </td>
+                                  <td className="p-4 text-sm font-medium text-slate-300">
+                                    {new Intl.NumberFormat('en-US', { style: 'currency', currency: uni.currency || 'USD', maximumFractionDigits: 0 }).format(uni.tuition)}
+                                    <span className="block text-[10px] font-bold text-emerald-400 mt-0.5">{uni.tuitionConverted?.replace(/[()]/g, '')}</span>
+                                  </td>
+                                  <td className="p-4 text-xs text-rose-300 font-bold">{uni.applicationDeadline}</td>
+                                  <td className="p-4 text-sm font-bold text-slate-300">{uni.acceptanceRate}</td>
+                                  <td className="p-4 text-sm font-black text-indigo-300 text-center">{uni.minCgpa.toFixed(1)}</td>
+                                </tr>
+                                
+                                {/* Expanded Details Row */}
+                                {(viewIdx === 0 ? expandedCollegeIdx : compareExpandedCollegeIdx) === idx && (
+                                  <tr className="bg-black/30">
+                                    <td colSpan={7} className="p-6 border-b border-white/5">
+                                      <div className="grid grid-cols-1 md:grid-cols-2 gap-8 animate-in fade-in slide-in-from-top-2 duration-300">
+                                        <div>
+                                          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Recommended Course</p>
+                                          <p className="text-sm font-black text-fuchsia-300 mb-5">{uni.recommendedCourse}</p>
+                                          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">AI Rationale</p>
+                                          <p className="text-xs text-slate-300 italic leading-relaxed border-l-2 border-indigo-500/50 pl-3">"{uni.rationale}"</p>
+                                        </div>
+                                        <div className="bg-indigo-500/5 rounded-xl p-4 border border-indigo-500/10">
+                                          <p className="text-[10px] font-bold text-indigo-400/70 uppercase tracking-widest mb-2">Program Details</p>
+                                          <p className="text-xs text-slate-300 leading-relaxed mb-4">{uni.courseDetails}</p>
+                                          <div className="flex flex-wrap gap-2">
+                                            {uni.notablePrograms?.map((prog: string, pIdx: number) => (
+                                              <span key={pIdx} className="px-2 py-1 bg-white/5 border border-white/10 rounded text-[10px] text-slate-400 font-medium">
+                                                {prog}
+                                              </span>
+                                            ))}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                )}
+                              </Fragment>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
                     </div>
                   </div>
 
@@ -1110,7 +1274,7 @@ export default function Home() {
                         Key Strengths
                       </h4>
                       <ul className="space-y-2">
-                        {result.strengths.map((s, i) => (
+                        {res.strengths?.map((s: string, i: number) => (
                           <li key={i} className="text-xs text-slate-300 flex items-start gap-2">
                             <span className="text-emerald-500 mt-0.5">•</span> {s}
                           </li>
@@ -1122,7 +1286,7 @@ export default function Home() {
                         Areas to Improve
                       </h4>
                       <ul className="space-y-2">
-                        {result.areasForImprovement.map((a, i) => (
+                        {res.areasForImprovement?.map((a: string, i: number) => (
                           <li key={i} className="text-xs text-slate-300 flex items-start gap-2">
                             <span className="text-rose-500 mt-0.5">•</span> {a}
                           </li>
@@ -1134,7 +1298,7 @@ export default function Home() {
                         <Briefcase className="w-3.5 h-3.5" /> Career Horizons
                       </h4>
                       <div className="flex flex-wrap gap-2">
-                        {result.careerOpportunities.map((c, i) => (
+                        {res.careerOpportunities?.map((c: string, i: number) => (
                           <span key={i} className="px-2.5 py-1 bg-white/5 border border-white/10 rounded-md text-[10px] font-bold text-slate-300">
                             {c}
                           </span>
@@ -1145,7 +1309,8 @@ export default function Home() {
 
 
                 </div>
-              )}
+              ))}
+              </div>
             </div>
           </div>
         </div>
@@ -1313,6 +1478,25 @@ export default function Home() {
                   </select>
                   <Filter className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                 </div>
+                
+                {/* Specific Course Filter */}
+                {uniqueExactCourses.length > 0 && (
+                  <div className="relative">
+                    <select 
+                      value={filterExactCourse}
+                      onChange={(e) => setFilterExactCourse(e.target.value)}
+                      className="appearance-none flex items-center gap-2 pl-4 pr-10 py-2 bg-black/40 border border-white/5 rounded-lg text-sm font-bold text-slate-300 hover:bg-white/5 transition-all outline-none"
+                    >
+                      <option value="All">All Degrees</option>
+                      {uniqueExactCourses.map(course => (
+                        <option key={course} value={course}>
+                          {course}
+                        </option>
+                      ))}
+                    </select>
+                    <Filter className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  </div>
+                )}
 
                 {/* Sort Filter */}
                 <div className="relative">

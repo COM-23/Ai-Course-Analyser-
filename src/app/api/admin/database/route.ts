@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import db from "@/lib/db";
+import { getDb } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   try {
-    const universities = db.prepare('SELECT * FROM universities ORDER BY lastUpdated DESC').all().map(u => ({
+    const universities = getDb().prepare('SELECT * FROM universities ORDER BY lastUpdated DESC').all().map(u => ({
       ...(u as any),
       programs: JSON.parse((u as any).programs as string)
     }));
@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
     const { action, payload } = body;
 
     if (action === 'update') {
-      const updateStmt = db.prepare(`
+      const updateStmt = getDb().prepare(`
         INSERT OR REPLACE INTO universities (id, name, location, domain, minCgpa, tuition, currency, programs, acceptanceRate, campusSetting, lastUpdated) 
         VALUES (@id, @name, @location, @domain, @minCgpa, @tuition, @currency, @programs, @acceptanceRate, @campusSetting, CURRENT_TIMESTAMP)
       `);
@@ -34,12 +34,12 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === 'import') {
-      const insertStmt = db.prepare(`
+      const insertStmt = getDb().prepare(`
         INSERT OR REPLACE INTO universities (id, name, location, domain, minCgpa, tuition, currency, programs, acceptanceRate, campusSetting, lastUpdated) 
         VALUES (@id, @name, @location, @domain, @minCgpa, @tuition, @currency, @programs, @acceptanceRate, @campusSetting, CURRENT_TIMESTAMP)
       `);
       
-      const insertMany = db.transaction((unis) => {
+      const insertMany = getDb().transaction((unis) => {
         for (const uni of unis) {
           insertStmt.run({
             ...uni,
@@ -53,13 +53,13 @@ export async function POST(req: NextRequest) {
     }
     
     if (action === 'delete') {
-      const deleteStmt = db.prepare('DELETE FROM universities WHERE id = ?');
+      const deleteStmt = getDb().prepare('DELETE FROM universities WHERE id = ?');
       deleteStmt.run(payload.id);
       return NextResponse.json({ success: true });
     }
     
     if (action === 'create') {
-      const insertStmt = db.prepare(`
+      const insertStmt = getDb().prepare(`
         INSERT INTO universities (id, name, location, domain, minCgpa, tuition, currency, programs, acceptanceRate, campusSetting) 
         VALUES (@id, @name, @location, @domain, @minCgpa, @tuition, @currency, @programs, @acceptanceRate, @campusSetting)
       `);

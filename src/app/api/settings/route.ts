@@ -1,5 +1,6 @@
+export const dynamic = "force-dynamic";
 import { NextResponse } from 'next/server';
-import db from '@/lib/db';
+import { getDb } from "@/lib/db";
 import { jwtVerify } from 'jose';
 
 const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET || 'super-secret-default-key');
@@ -22,7 +23,7 @@ export async function GET(req: Request) {
     const isSuperAdmin = await requireSuperAdmin(req);
     if (!isSuperAdmin) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const rows = db.prepare('SELECT id, value FROM settings').all();
+    const rows = getDb().prepare('SELECT id, value FROM settings').all();
     const settings = rows.reduce((acc: any, row: any) => {
       acc[row.id] = JSON.parse(row.value);
       return acc;
@@ -41,12 +42,12 @@ export async function POST(req: Request) {
 
     const data = await req.json();
     
-    const upsert = db.prepare(`
+    const upsert = getDb().prepare(`
       INSERT INTO settings (id, value) VALUES (?, ?)
       ON CONFLICT(id) DO UPDATE SET value = excluded.value
     `);
     
-    db.transaction(() => {
+    getDb().transaction(() => {
       for (const [key, value] of Object.entries(data)) {
         upsert.run(key, JSON.stringify(value));
       }

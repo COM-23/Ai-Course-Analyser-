@@ -1,5 +1,6 @@
+export const dynamic = "force-dynamic";
 import { NextResponse } from 'next/server';
-import db from '@/lib/db';
+import { getDb } from "@/lib/db";
 import bcrypt from 'bcryptjs';
 
 export async function POST(req: Request) {
@@ -11,7 +12,7 @@ export async function POST(req: Request) {
     }
 
     // Check strong password policy
-    const settingsStmt = db.prepare('SELECT value FROM settings WHERE id = ?');
+    const settingsStmt = getDb().prepare('SELECT value FROM settings WHERE id = ?');
     const enforceStrongPwdRow = settingsStmt.get('enforceStrongPasswords') as any;
     const enforceStrongPwd = enforceStrongPwdRow ? JSON.parse(enforceStrongPwdRow.value) : false;
     
@@ -26,7 +27,7 @@ export async function POST(req: Request) {
 
     const passwordHash = await bcrypt.hash(newPassword, 10);
     
-    const stmt = db.prepare('UPDATE users SET passwordHash = ? WHERE id = ?');
+    const stmt = getDb().prepare('UPDATE users SET passwordHash = ? WHERE id = ?');
     stmt.run(passwordHash, id);
 
     return NextResponse.json({ success: true });
