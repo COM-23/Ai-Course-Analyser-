@@ -244,10 +244,22 @@ class LocalHeuristicBrain {
 
     // Load universities dynamically from database
     const rows = getDb().prepare('SELECT * FROM universities').all();
-    this.universityDB = rows.map((row: any) => ({
-      ...row,
-      programs: JSON.parse(row.programs)
-    }));
+    this.universityDB = rows.map((row: any) => {
+      let parsedPrograms = row.programs;
+      if (typeof row.programs === 'string') {
+        try {
+          parsedPrograms = JSON.parse(row.programs);
+        } catch {
+          parsedPrograms = {};
+        }
+      } else if (!row.programs || typeof row.programs !== 'object') {
+        parsedPrograms = {};
+      }
+      return {
+        ...row,
+        programs: parsedPrograms
+      };
+    });
   }
 
   async analyze(text: string, context: string, manualCountry: string, manualIntake: string, aiStrictness: string = "standard") {
@@ -1033,6 +1045,15 @@ Counselor AI Summary:`;
             aiHeaders['Authorization'] = `Bearer ${aiApiKey}`;
             aiHeaders['x-api-key'] = aiApiKey;
         }
+        const isServerless = !!(
+            process.env.NETLIFY ||
+            process.env.VERCEL ||
+            process.env.AWS_LAMBDA_FUNCTION_NAME ||
+            process.env.LAMBDA_TASK_ROOT ||
+            (typeof process.cwd === 'function' && process.cwd().startsWith('/var/task'))
+        );
+        const timeoutMs = isServerless ? 22000 : 90000;
+
         const ollamaResponse = await fetch(aiEndpoint, {
             method: 'POST',
             headers: aiHeaders,
@@ -1046,7 +1067,7 @@ Counselor AI Summary:`;
                     temperature: 0.2
                 }
             }),
-            signal: AbortSignal.timeout(90000)
+            signal: AbortSignal.timeout(timeoutMs)
         });
         
         if (ollamaResponse.ok) {
