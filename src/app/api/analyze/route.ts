@@ -335,12 +335,12 @@ class LocalHeuristicBrain {
 
     // 1. EXTRACT NAME
     let extractedName = "Unknown Student";
-    // Check explicit name markers (e.g., "Name: Chandra Sekhar", "Student: John Doe")
-    const nameMatch = lowerText.match(/(?:my name is|i am|this is|student name:|student:|name:)[ \t]+(?:dr\.?|mr\.?|ms\.?|mrs\.?[ \t]+)?([a-z]+(?:[ \t]+[a-z]+){0,3})/i);
+    // Check explicit name markers (e.g., "student Name : Radha", "Name: Chandra Sekhar", "Student: John Doe")
+    const nameMatch = lowerText.match(/(?:my name is|i am|this is|student name|candidate name|applicant name|student|name)\s*[:=\-]\s*(?:(?:dr|mr|ms|mrs|prof)\.?\s+)?([a-z\.'-]+(?:[ \t]+[a-z\.'-]+){0,3})/i);
     
     if (nameMatch && nameMatch[1]) {
-       // Title case the extracted name
-       extractedName = nameMatch[1].replace(/\b\w/g, l => l.toUpperCase()).trim();
+       // Clean trailing punctuation and Title Case the extracted name
+       extractedName = nameMatch[1].replace(/[,;:]+$/, '').replace(/\b\w/g, l => l.toUpperCase()).trim();
     } else {
        // Fast Resume Header Parser: Resumes almost always place candidate's full name at the very top (first 1-4 lines)
        const targetText = text.trim() || context.trim();
@@ -349,7 +349,7 @@ class LocalHeuristicBrain {
            "resume", "curriculum", "vitae", "cv", "profile", "contact", "portfolio", 
            "summary", "professional", "education", "experience", "technical", "skills", 
            "projects", "certifications", "portal", "student", "applicant", "application",
-           "details", "about", "objective", "work", "career", "overview"
+           "details", "about", "objective", "work", "career", "overview", "course", "passport", "ielts", "backlogs"
        ];
 
        for (let i = 0; i < Math.min(lines.length, 5); i++) {
@@ -362,8 +362,8 @@ class LocalHeuristicBrain {
            const cleanLine = line.replace(/^(?:dr\.?|mr\.?|ms\.?|mrs\.?)\s+/i, '').replace(/[^a-zA-Z\s'-]/g, ' ').trim();
            const words = cleanLine.split(/\s+/).filter(w => w.length >= 2);
            
-           // A human name is typically 2 to 4 alphabetical words
-           if (words.length >= 2 && words.length <= 4) {
+           // A human name is typically 1 to 4 alphabetical words
+           if (words.length >= 1 && words.length <= 4) {
                const hasGeneric = words.some(w => genericBlacklist.includes(w.toLowerCase()));
                if (!hasGeneric) {
                    extractedName = words.map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
@@ -628,17 +628,38 @@ class LocalHeuristicBrain {
       }
     }
 
+    // 3.5 EXTRACT EXPLICIT TARGET COURSE / SPECIALIZATION (Runs before domain scoring to prioritize student's stated goal)
+    let explicitTargetCourse = "";
+    const targetCourseMatch = lowerText.match(/(?:preferred course|target course|interested in|applying for|course|degree|program|specialization)\s*[:=\-]\s*([a-zA-Z0-9\.\s&/'-]+?)(?=$|\r?\n|[,;])/i);
+    if (targetCourseMatch && targetCourseMatch[1] && targetCourseMatch[1].trim().length > 1) {
+        explicitTargetCourse = targetCourseMatch[1].trim().replace(/\b\w/g, l => l.toUpperCase());
+    }
+
+    // Align degreeObjective if target course explicitly specifies degree level
+    if (explicitTargetCourse) {
+        const lowerTC = explicitTargetCourse.toLowerCase();
+        if (/\b(m\.?sc|m\.?tech|master|masters|m\.?e|m\.?s|post graduate|post graduation)\b/i.test(lowerTC)) {
+            degreeObjective = "Post Graduate / Masters";
+        } else if (/\b(mba|m\.?b\.?a)\b/i.test(lowerTC)) {
+            degreeObjective = "MBA";
+        } else if (/\b(ph\.?d|doctorate|doctoral)\b/i.test(lowerTC)) {
+            degreeObjective = "PhD / Doctorate";
+        } else if (/\b(b\.?sc|b\.?tech|bachelor|bachelors|b\.?e|bba|bca|undergraduate)\b/i.test(lowerTC)) {
+            degreeObjective = "Undergraduate";
+        }
+    }
+
     // 4. DOMAIN SCORING ENGINE
-    const domains = {
+    const domains: Record<string, { score: number; keywords: string[] }> = {
       arts_humanities_social_sciences: { score: 0, keywords: ["bachelor of arts", "ba", "b.a", "bachelor of social work", "bsw", "bachelor of fine arts", "bfa", "bachelor of design", "b.des", "master of arts", "ma", "m.a", "master of social work", "msw", "master of fine arts", "mfa", "master of design", "m.des", "master of library and information science", "mlis", "master of public administration", "mpa", "master of international relations", "mir", "master of development studies", "arts", "humanities", "social sciences", "history", "philosophy", "sociology", "political science", "literature", "languages", "anthropology", "geography", "psychology", "economics", "english", "library science", "linguistics", "cultural studies", "applied arts", "painting", "sculpture", "visual communication", "textile design", "ceramic design", "interior design", "fashion design", "game design", "industrial design", "clinical social work", "community development", "child welfare"] },
       commerce_management: { score: 0, keywords: ["bachelor of commerce", "b.com", "bcom", "bachelor of business administration", "bba", "bachelor of management studies", "bms", "master of commerce", "m.com", "mcom", "master of business administration", "mba", "master of management studies", "mms", "executive mba", "emba", "commerce", "management", "business", "finance", "marketing", "accounting", "hr", "sales", "entrepreneurship", "human resource management", "international business", "banking", "insurance", "supply chain management", "logistics", "operations management", "taxation", "business analytics", "retail management", "e-commerce", "event management", "healthcare management"] },
       science_technology: { score: 0, keywords: ["bachelor of science", "b.sc", "bsc", "b.s.", "bs", "bachelor of computer applications", "bachelor of computer application", "computer application", "computer applications", "bca", "bachelor of technology", "b.tech", "btech", "bachelor of engineering", "b.e", "be", "master of data science", "mds", "master of artificial intelligence", "mai", "master of environmental management", "mem", "master of science", "m.sc", "msc", "m.s.", "ms", "master of technology", "m.tech", "mtech", "master of engineering", "m.e", "me", "master of computer applications", "master of computer application", "mca", "science", "technology", "computer science", "it", "engineering", "software", "physics", "chemistry", "mathematics", "biology", "data", "ai", "information technology", "information science", "information systems", "informatics", "artificial intelligence", "machine learning", "data science", "cybersecurity", "software engineering", "cloud computing", "mechanical engineering", "civil engineering", "electrical engineering", "electronics and communication", "chemical engineering", "aerospace engineering", "robotics", "mechatronics", "biotechnology", "microbiology", "genetics", "zoology", "botany", "environmental science", "statistics", "geology", "food technology", "bioinformatics"] },
       medicine_allied_health: { score: 0, keywords: ["bachelor of dental science", "bachelor of surgery", "mbbs", "bachelor of dental surgery", "bds", "bachelor of ayurvedic medicine and surgery", "bams", "bachelor of homeopathic medicine and surgery", "bhms", "bachelor of physiotherapy", "bpt", "bachelor of science in nursing", "b.sc nursing", "bachelor of pharmacy", "b.pharm", "doctor of medicine", "md", "master of surgery", "master of dental surgery", "mds", "master of pharmacy", "m.pharm", "master of physiotherapy", "mpt", "master of public health", "mph", "master of science in nursing", "m.sc nursing", "nursing", "medicine", "health", "pharmacy", "dentistry", "public health", "physiotherapy", "allied health", "general medicine", "general surgery", "pediatrics", "orthopedics", "obstetrics", "gynecology", "dermatology", "psychiatry", "anesthesia", "radiology", "cardiology", "neurology", "oncology", "gastroenterology", "nephrology", "urology", "ophthalmology", "ent", "clinical research", "pharmacology", "pharmaceutics", "pharmacognosy", "toxicology", "orthodontics", "periodontics", "prosthodontics", "oral surgery", "ayurveda", "homeopathy", "unani"] },
       law: { score: 0, keywords: ["bachelor of law", "llb", "master of laws", "llm", "law", "legal", "jurisprudence", "criminology", "corporate law", "criminal law", "civil law", "international law", "constitutional law", "intellectual property law", "labor law", "environmental law", "family law", "human rights law", "cyber law", "tax law"] },
-      education: { score: 0, keywords: ["bachelor of education", "b.ed", "bed", "master of education", "m.ed", "med", "master of arts in education", "ma education", "education", "teaching", "pedagogy", "curriculum", "special education", "early childhood education", "primary education", "secondary education", "educational leadership", "educational psychology", "physical education"] },
+      education: { score: 0, keywords: ["bachelor of education", "b.ed", "bed", "master of education", "m.ed", "med", "master of arts in education", "ma education", "education", "teaching", "pedagogy", "curriculum design", "curriculum development", "special education", "early childhood education", "primary education", "secondary education", "educational leadership", "educational psychology", "physical education"] },
       hospitality_tourism_events: { score: 0, keywords: ["bachelor of hotel management", "bhm", "bachelor of tourism studies", "bts", "master of hotel management", "mhm", "master of tourism administration", "mta", "hospitality", "tourism", "events", "hotel management", "culinary", "travel", "hospitality administration", "culinary arts", "catering technology", "travel and tourism management", "event management", "aviation management", "cruise line management"] },
       performing_arts_media: { score: 0, keywords: ["bachelor of mass media", "bmm", "bachelor of journalism and mass communication", "bjmc", "bachelor of performing arts", "bpa", "bachelor of physical education", "bped", "master of journalism and mass communication", "mjmc", "master of physical education", "mped", "master of performing arts", "performing arts", "media", "journalism", "film", "music", "dance", "theatre", "mass communication", "broadcasting", "public relations", "advertising", "media studies", "film studies", "cinematography", "video editing", "sound engineering", "animation", "visual effects", "vocal music", "instrumental music", "acting", "directing"] },
-      agriculture_veterinary: { score: 0, keywords: ["bachelor of agriculture", "b.sc agriculture", "bachelor of veterinary science", "b.v.sc", "bvsc", "msc agriculture", "mvsc", "agriculture", "veterinary", "agronomy", "forestry", "animal science", "horticulture", "vet", "plant pathology", "agricultural economics", "agricultural extension", "soil science", "entomology", "genetics and plant breeding", "food science", "dairy technology", "agricultural engineering", "veterinary science", "animal husbandry", "animal genetics", "veterinary microbiology", "veterinary pathology", "veterinary surgery"] }
+      agriculture_veterinary: { score: 0, keywords: ["bachelor of agriculture", "b.sc agriculture", "bachelor of veterinary science", "b.v.sc", "bvsc", "msc agriculture", "mvsc", "agriculture", "agricultural", "agri", "veterinary", "agronomy", "forestry", "animal science", "horticulture", "vet", "plant pathology", "agricultural economics", "agricultural extension", "soil science", "crop science", "entomology", "genetics and plant breeding", "food science", "dairy technology", "agricultural engineering", "veterinary science", "animal husbandry", "animal genetics", "veterinary microbiology", "veterinary pathology", "veterinary surgery", "sustainable agriculture"] }
     };
 
     Object.keys(domains).forEach(key => {
@@ -673,20 +694,52 @@ class LocalHeuristicBrain {
       });
     });
 
+    // CRITICAL: Decisive priority if the student explicitly specified a target course or subject
+    if (explicitTargetCourse) {
+      const lowerCourse = explicitTargetCourse.toLowerCase();
+      // Remove generic degree level words to isolate the core subject
+      const subjectOnly = lowerCourse.replace(/\b(master|masters|m\.?sc|msc|m\.?tech|mtech|m\.?s|ms|bachelor|bachelors|b\.?sc|bsc|b\.?tech|btech|b\.?s|bs|b\.?e|m\.?e|ph\.?d|phd|mba|degree|course|program|in|of|and|&)\b/g, ' ').trim();
+      
+      let bestDomainForCourse: keyof typeof domains | null = null;
+      let highestSubjectScore = 0;
+
+      Object.entries(domains).forEach(([domainKey, d]) => {
+        let domainMatchScore = 0;
+        d.keywords.forEach(kw => {
+          // Skip generic prefixes when matching subject
+          if (["arts", "science", "commerce", "management", "history", "english", "languages", "data", "it", "media", "ba", "ma", "bs", "ms", "bsc", "msc", "b.a", "m.a", "b.s.", "m.s.", "b.sc", "m.sc", "bachelor", "master"].includes(kw)) {
+            return;
+          }
+          const safeKw = kw.replace(/\./g, '\\.');
+          const regex = new RegExp(`\\b${safeKw}\\b`, 'i');
+          if (regex.test(subjectOnly) || regex.test(lowerCourse)) {
+            domainMatchScore += kw.length; // Specific longer keywords get more weight
+          }
+        });
+        if (domainMatchScore > highestSubjectScore) {
+          highestSubjectScore = domainMatchScore;
+          bestDomainForCourse = domainKey as keyof typeof domains;
+        }
+      });
+
+      if (bestDomainForCourse && highestSubjectScore > 0) {
+        domains[bestDomainForCourse].score += 100; // Overwhelming priority to student's explicit choice
+      }
+    }
+
     // Determine primary domain
     let primaryDomain = "science_technology"; // default fallback
     let maxScore = 0;
 
-    // Apply manual heuristic boosts to break ties for common Indian tech degrees
-    if (/\b(b\.?\s*tech|m\.?\s*tech|b\.?\s*e|b\.?\s*c\.?\s*a|engineering|computer science)\b/i.test(lowerText)) {
+    // Apply manual heuristic boosts to break ties for common Indian tech degrees only when no explicit course overrides
+    if (/\b(b\.?\s*tech|m\.?\s*tech|b\.?\s*e|b\.?\s*c\.?\s*a|engineering|computer science)\b/i.test(lowerText) && !explicitTargetCourse) {
        domains["science_technology"].score += 20; 
     }
-    if (/\b(b\.?\s*com|m\.?\s*com|m\.?\s*b\.?\s*a|b\.?\s*b\.?\s*a|pgdm)\b/i.test(lowerText)) {
+    if (/\b(b\.?\s*com|m\.?\s*com|m\.?\s*b\.?\s*a|b\.?\s*b\.?\s*a|pgdm)\b/i.test(lowerText) && !explicitTargetCourse) {
        domains["commerce_management"].score += 20; 
     }
 
     Object.entries(domains).forEach(([domain, data]) => {
-      // Use >= so later domains overwrite earlier ones in a tie, or just let the boost handle it
       if (data.score > maxScore) {
         maxScore = data.score;
         primaryDomain = domain;
@@ -694,24 +747,20 @@ class LocalHeuristicBrain {
     });
 
     // EXTRACT EXACT COURSE (BBA, B.Tech, etc) for granular UI filtering
-    const exactDegreeList = [
-      "BA", "BSW", "BFA", "B.Des", "B.Com", "BBA", "BMS", "B.Sc", "BCA", "B.Tech", "B.E", "BDS", "MBBS", "BAMS", "BHMS", "BPT", "B.Sc Nursing", "B.Pharm", "LLB", "B.Ed", "BHM", "BTS", "BMM", "BJMC", "BPA", "BPEd", "B.Sc Agriculture", "B.V.Sc", 
-      "MHM", "MTA", "MJMC", "MPEd", "MLIS", "MPA", "MIR", "MDS", "MAI", "MEM", "MA", "MSW", "MFA", "M.Des", "M.Com", "MBA", "MMS", "EMBA", "M.Sc", "M.Tech", "M.E", "MCA", "MD", "MS", "M.Pharm", "MPT", "MPH", "M.Sc Nursing", "LLM", "M.Ed", "MA Education", "Nursing", "Msc Agriculture", "MVSc", "Diploma"
-    ];
-    let exactCourse = "General";
-    for (const deg of exactDegreeList) {
-        const safeDeg = deg.replace(/\./g, '\\.');
-        const regex = new RegExp(`\\b${safeDeg}\\b`, 'i');
-        if (regex.test(degreeObjective) || regex.test(rawData)) {
-            exactCourse = deg;
-            break;
-        }
-    }
-
-    let explicitTargetCourse = "";
-    const targetCourseMatch = lowerText.match(/(?:preferred course|interested in|target course|specialization)[\s:=]+([a-z ]+?)(?:$|\n|\.|,)/i);
-    if (targetCourseMatch && targetCourseMatch[1] && targetCourseMatch[1].trim().length > 2) {
-        explicitTargetCourse = targetCourseMatch[1].trim().replace(/\b\w/g, l => l.toUpperCase());
+    let exactCourse = explicitTargetCourse || "General";
+    if (exactCourse === "General") {
+      const exactDegreeList = [
+        "BA", "BSW", "BFA", "B.Des", "B.Com", "BBA", "BMS", "B.Sc", "BCA", "B.Tech", "B.E", "BDS", "MBBS", "BAMS", "BHMS", "BPT", "B.Sc Nursing", "B.Pharm", "LLB", "B.Ed", "BHM", "BTS", "BMM", "BJMC", "BPA", "BPEd", "B.Sc Agriculture", "B.V.Sc", 
+        "MHM", "MTA", "MJMC", "MPEd", "MLIS", "MPA", "MIR", "MDS", "MAI", "MEM", "MA", "MSW", "MFA", "M.Des", "M.Com", "MBA", "MMS", "EMBA", "M.Sc", "M.Tech", "M.E", "MCA", "MD", "MS", "M.Pharm", "MPT", "MPH", "M.Sc Nursing", "LLM", "M.Ed", "MA Education", "Nursing", "Msc Agriculture", "MVSc", "Diploma"
+      ];
+      for (const deg of exactDegreeList) {
+          const safeDeg = deg.replace(/\./g, '\\.');
+          const regex = new RegExp(`\\b${safeDeg}\\b`, 'i');
+          if (regex.test(degreeObjective) || regex.test(rawData)) {
+              exactCourse = deg;
+              break;
+          }
+      }
     }
 
     // 5. GENERATE PROFILE REPORTS BASED ON DOMAIN
@@ -926,9 +975,21 @@ class LocalHeuristicBrain {
       }
 
       if (explicitTargetCourse) {
-          const prefix = (degreeObjective === "PhD / Doctorate") ? "PhD in " : (degreeObjective === "MBA") ? "MBA in " : (degreeObjective !== "Undergraduate" && degreeObjective !== "Diploma") ? "Masters in " : "Bachelors in ";
-          const cleanedTarget = explicitTargetCourse.replace(/^(?:Masters? in|Masters? of|Bachelors? in|Bachelors? of|Ph\.?D\.? in|MBA in)\s+/i, '');
-          dynamicCourse = prefix + cleanedTarget.replace(/\b\w/g, l => l.toUpperCase());
+          const prefix = (degreeObjective === "PhD / Doctorate") 
+            ? "PhD in " 
+            : (degreeObjective === "MBA") 
+              ? "MBA in " 
+              : (degreeObjective !== "Undergraduate" && degreeObjective !== "Diploma") 
+                ? "Masters in " 
+                : "Bachelors in ";
+          
+          const cleanedTarget = explicitTargetCourse
+            .replace(/^(?:masters?(?:\s+(?:in|of))?|bachelors?(?:\s+(?:in|of))?|m\.?sc\.?(?:\s+in)?|b\.?sc\.?(?:\s+in)?|m\.?tech\.?(?:\s+in)?|b\.?tech\.?(?:\s+in)?|m\.?s\.?(?:\s+in)?|b\.?s\.?(?:\s+in)?|m\.?a\.?(?:\s+in)?|b\.?a\.?(?:\s+in)?|ph\.?d\.?(?:\s+in)?|mba(?:\s+in)?|ll\.?m\.?(?:\s+in)?|ll\.?b\.?(?:\s+in)?)\s+/i, '')
+            .trim();
+
+          dynamicCourse = (cleanedTarget.length > 0)
+            ? prefix + cleanedTarget.replace(/\b\w/g, l => l.toUpperCase())
+            : explicitTargetCourse;
       } else if (degreeObjective === "PhD / Doctorate") {
           dynamicCourse = (parsedPrograms && !Array.isArray(parsedPrograms) && parsedPrograms.phd) ? parsedPrograms.phd : "Doctorate in " + pMasters.replace(/Master(?:s)? of |MS in |MSc in |MA in /i, "");
       } else if (degreeObjective === "MBA") {
@@ -936,6 +997,8 @@ class LocalHeuristicBrain {
       } else {
           dynamicCourse = (degreeObjective !== "Undergraduate" && degreeObjective !== "Diploma") ? pMasters : pBachelors;
       }
+
+      const domainLabel = primaryDomain.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' & ');
 
       result.recommendedColleges.push({
         name: uni.name,
@@ -946,7 +1009,7 @@ class LocalHeuristicBrain {
             ? `🔥 Live Web Scrape: Automatically pulled from recent web search results. With a CGPA of ${extractedCgpa}, this is a ${category.toLowerCase()} school. Estimated tuition is ${new Intl.NumberFormat('en-US', { style: 'currency', currency: uni.currency || 'USD', maximumFractionDigits: 0 }).format(uni.tuition)}/year. (Note: Counselors must verify exact current fees and criteria on the official university website).`
             : `With a CGPA of ${extractedCgpa}, this is a ${category.toLowerCase()} school. Estimated tuition is ${new Intl.NumberFormat('en-US', { style: 'currency', currency: uni.currency || 'USD', maximumFractionDigits: 0 }).format(uni.tuition)}/year. (Note: Counselors must verify exact current fees and criteria on the official university website).`,
         recommendedCourse: dynamicCourse,
-        courseDetails: `Intensive academic track specializing in ${primaryDomain}. Features heavy industry integration, dedicated career placement services, and a comprehensive core curriculum covering cutting-edge methodologies.`,
+        courseDetails: `Intensive academic track specializing in ${domainLabel}. Features heavy industry integration, dedicated career placement services, and a comprehensive core curriculum covering cutting-edge methodologies.`,
         notablePrograms: [uni.domain.toUpperCase(), "Global Network", "Research Labs"],
         minCgpa: uni.minCgpa,
         tuition: uni.tuition,
