@@ -366,11 +366,23 @@ export default function Home() {
         body: JSON.stringify(payload),
       });
 
-      const data = await res.json();
-
       if (!res.ok) {
-        throw new Error(data.error || "Analysis failed");
+        const errText = await res.text();
+        let errMsg = `Server error (${res.status})`;
+        try {
+          const errJson = JSON.parse(errText);
+          if (errJson.error) errMsg = errJson.error;
+        } catch {
+          if (errText.includes("<html") || errText.includes("<!DOCTYPE")) {
+            errMsg = `Server error (${res.status}): Netlify returned an error page.`;
+          } else if (errText) {
+            errMsg = errText;
+          }
+        }
+        throw new Error(errMsg);
       }
+
+      const data = await res.json();
 
       if (data.dbError) {
         alert("CRITICAL WARNING: The AI analysis succeeded, but saving to the database FAILED! Error: " + data.dbError + ". This means the student will disappear when you refresh. Please fix your database file permissions (it might be owned by root).");
@@ -433,8 +445,16 @@ export default function Home() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
+        if (!res.ok) {
+          const errText = await res.text();
+          let errMsg = `Analysis failed for ${country} (${res.status})`;
+          try {
+            const errJson = JSON.parse(errText);
+            if (errJson.error) errMsg = errJson.error;
+          } catch {}
+          throw new Error(errMsg);
+        }
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || `Analysis failed for ${country}`);
         if (data.dbError) {
           alert(`CRITICAL WARNING: Saving ${country} comparison to the database FAILED! Error: ${data.dbError}`);
         }
