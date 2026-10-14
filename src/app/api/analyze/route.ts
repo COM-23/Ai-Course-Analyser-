@@ -149,8 +149,16 @@ async function scrapeLiveUniversities(domain: string, country: string, degreeObj
     const insertMany = getDb().transaction((unis) => {
       for (const uni of unis) {
         insertStmt.run({
-          ...uni,
-          programs: JSON.stringify(uni.programs)
+          id: uni.id,
+          name: uni.name,
+          location: uni.location,
+          domain: uni.domain,
+          minCgpa: uni.minCgpa,
+          tuition: uni.tuition,
+          currency: uni.currency,
+          programs: JSON.stringify(uni.programs),
+          acceptanceRate: uni.acceptanceRate,
+          campusSetting: uni.campusSetting
         });
       }
     });
@@ -326,53 +334,40 @@ class LocalHeuristicBrain {
     const targetIntake = manualIntake || "Not Decided";
 
     // 1. EXTRACT NAME
-    // 1. EXTRACT NAME
     let extractedName = "Unknown Student";
-    // Strictly require a colon for labels to avoid matching normal sentences like "student portal"
-    const nameMatch = lowerText.match(/(?:my name is|i am|this is|student name:|student:|name:)[ \t]+(?:dr\.?|mr\.?|ms\.?|mrs\.?[ \t]+)?([a-z]+(?:[ \t]+[a-z]+){0,2})/i);
+    // Check explicit name markers (e.g., "Name: Chandra Sekhar", "Student: John Doe")
+    const nameMatch = lowerText.match(/(?:my name is|i am|this is|student name:|student:|name:)[ \t]+(?:dr\.?|mr\.?|ms\.?|mrs\.?[ \t]+)?([a-z]+(?:[ \t]+[a-z]+){0,3})/i);
     
     if (nameMatch && nameMatch[1]) {
        // Title case the extracted name
-       extractedName = nameMatch[1].replace(/\b\w/g, l => l.toUpperCase());
+       extractedName = nameMatch[1].replace(/\b\w/g, l => l.toUpperCase()).trim();
     } else {
-       // Exclusively rely on Ollama AI for highly accurate Name Extraction from unstructured resumes
-       try {
-           const targetText = text.trim() || context.trim();
-           const prompt = `System: You are an AI data extractor. Extract ONLY the human student's full name from the start of this resume. Reply with ONLY the exact name, no extra words, headers, or bullet points. If you cannot find a human name, reply exactly with "Unknown Student".\n\nResume Text:\n${targetText.substring(0, 800)}`;
-           const aiEndpoint = process.env.LOCAL_AI_ENDPOINT || 'http://127.0.0.1:11434/api/generate';
-           const aiModel = process.env.LOCAL_AI_MODEL || 'llama3.1';
-           const aiApiKey = process.env.LOCAL_AI_API_KEY;
-           const aiHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
-           if (aiApiKey) {
-               aiHeaders['Authorization'] = `Bearer ${aiApiKey}`;
-               aiHeaders['x-api-key'] = aiApiKey;
+       // Fast Resume Header Parser: Resumes almost always place candidate's full name at the very top (first 1-4 lines)
+       const targetText = text.trim() || context.trim();
+       const lines = targetText.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
+       const genericBlacklist = [
+           "resume", "curriculum", "vitae", "cv", "profile", "contact", "portfolio", 
+           "summary", "professional", "education", "experience", "technical", "skills", 
+           "projects", "certifications", "portal", "student", "applicant", "application",
+           "details", "about", "objective", "work", "career", "overview"
+       ];
+
+       for (let i = 0; i < Math.min(lines.length, 5); i++) {
+           const line = lines[i];
+           // Must not contain email, URL, phone number patterns
+           if (line.includes('@') || line.includes('http') || line.includes('.com') || line.includes('.org') || /\d{5,}/.test(line)) {
+               continue;
            }
-           const ollamaRes = await fetch(aiEndpoint, {
-               method: 'POST',
-               headers: aiHeaders,
-               body: JSON.stringify({ model: aiModel, prompt, stream: false, keep_alive: -1, options: { num_thread: 4 } }),
-               signal: AbortSignal.timeout(30000)
-           });
-           if (ollamaRes.ok) {
-               const data = await ollamaRes.json();
-               const ollamaName = data.response.trim();
-               if (ollamaName && ollamaName.length > 2 && ollamaName.length < 40 && !ollamaName.includes("Unknown")) {
-                   extractedName = ollamaName.replace(/\b\w/g, (l: string) => l.toUpperCase());
-               }
-           }
-       } catch (e) {
-           console.error("Ollama name extraction fallback failed", e);
-       }
-       
-       if (extractedName === "Unknown Student") {
-           // Absolute last resort fallback to first two title-cased words if they exist and aren't generic
-           const targetText = text.trim() || context.trim();
-           const topWords = targetText.split(/[\s\n]+/).slice(0, 2).join(" ");
-           if (/^[A-Z][a-z]+\s[A-Z][a-z]+$/.test(topWords)) {
-               const genericNameBlacklist = ["portal", "resume", "cv", "curriculum", "vitae", "profile", "learn", "overseas", "student", "applicant", "application", "details", "contact"];
-               const isGenericTop = genericNameBlacklist.some(word => topWords.toLowerCase().includes(word));
-               if (!isGenericTop) {
-                   extractedName = topWords;
+           // Remove title/prefix if any and keep alpha/space/dash
+           const cleanLine = line.replace(/^(?:dr\.?|mr\.?|ms\.?|mrs\.?)\s+/i, '').replace(/[^a-zA-Z\s'-]/g, ' ').trim();
+           const words = cleanLine.split(/\s+/).filter(w => w.length >= 2);
+           
+           // A human name is typically 2 to 4 alphabetical words
+           if (words.length >= 2 && words.length <= 4) {
+               const hasGeneric = words.some(w => genericBlacklist.includes(w.toLowerCase()));
+               if (!hasGeneric) {
+                   extractedName = words.map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+                   break;
                }
            }
        }
@@ -1037,57 +1032,89 @@ ${userPrompt}
 
 Counselor AI Summary:`;
         
-        const aiEndpoint = process.env.LOCAL_AI_ENDPOINT || 'http://127.0.0.1:11434/api/generate';
-        const aiModel = process.env.LOCAL_AI_MODEL || 'llama3.1';
-        const aiApiKey = process.env.LOCAL_AI_API_KEY;
-        const aiHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
-        if (aiApiKey) {
-            aiHeaders['Authorization'] = `Bearer ${aiApiKey}`;
-            aiHeaders['x-api-key'] = aiApiKey;
-        }
-        const isServerless = !!(
-            process.env.NETLIFY ||
-            process.env.VERCEL ||
-            process.env.AWS_LAMBDA_FUNCTION_NAME ||
-            process.env.LAMBDA_TASK_ROOT ||
-            (typeof process.cwd === 'function' && process.cwd().startsWith('/var/task'))
-        );
-        const timeoutMs = isServerless ? 8500 : 90000;
-
-        const ollamaResponse = await fetch(aiEndpoint, {
-            method: 'POST',
-            headers: aiHeaders,
-            body: JSON.stringify({
-                model: aiModel,
-                prompt: prompt,
-                stream: false,
-                keep_alive: '30m',
-                options: {
-                    num_predict: 180,
-                    temperature: 0.2
+        // Tier 1: Fast Cloud LLM (Groq) if configured - returns in ~400ms
+        if (process.env.GROQ_API_KEY) {
+            try {
+                const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${process.env.GROQ_API_KEY}`
+                    },
+                    body: JSON.stringify({
+                        model: 'llama-3.1-8b-instant',
+                        messages: [
+                            { role: 'system', content: 'You are an expert admission counselor AI. Format a professional structured profile report with exact subheadings: **Academic Background**, **Financial & Location Preferences**, and **Counselor Notes**.' },
+                            { role: 'user', content: prompt }
+                        ],
+                        max_tokens: 180,
+                        temperature: 0.2
+                    }),
+                    signal: AbortSignal.timeout(5000)
+                });
+                if (groqRes.ok) {
+                    const groqData = await groqRes.json();
+                    if (groqData.choices?.[0]?.message?.content) {
+                        finalSummary = groqData.choices[0].message.content.trim();
+                    }
                 }
-            }),
-            signal: AbortSignal.timeout(timeoutMs)
-        });
-        
-        if (ollamaResponse.ok) {
-            const data = await ollamaResponse.json();
-            if (data.response) {
-                finalSummary = data.response.trim();
+            } catch (groqErr) {
+                console.warn("Groq cloud AI fallback to local/rule-based:", groqErr);
             }
-        } else {
-            throw new Error(`Ollama endpoint (${aiEndpoint}) returned status ${ollamaResponse.status}`);
+        }
+
+        // Tier 2: Local Ollama AI with Strict 6s Circuit Breaker (Netlify Free Tier has a 10s hard timeout)
+        if (!finalSummary) {
+            const aiEndpoint = process.env.LOCAL_AI_ENDPOINT || 'http://127.0.0.1:11434/api/generate';
+            const aiModel = process.env.LOCAL_AI_MODEL || 'llama3.1';
+            const aiApiKey = process.env.LOCAL_AI_API_KEY;
+            const aiHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+            if (aiApiKey) {
+                aiHeaders['Authorization'] = `Bearer ${aiApiKey}`;
+                aiHeaders['x-api-key'] = aiApiKey;
+            }
+            const isCloudEnv = !!(
+                process.env.NETLIFY ||
+                process.env.VERCEL ||
+                process.env.AWS_LAMBDA_FUNCTION_NAME ||
+                process.env.LAMBDA_TASK_ROOT ||
+                process.env.NODE_ENV === 'production' ||
+                (typeof process.cwd === 'function' && !process.cwd().includes('/Users/dishik'))
+            );
+            // Cap at 6000ms in production/serverless to guarantee we respond before Netlify's 10s gateway timeout
+            const timeoutMs = isCloudEnv ? 6000 : 25000;
+
+            const ollamaResponse = await fetch(aiEndpoint, {
+                method: 'POST',
+                headers: aiHeaders,
+                body: JSON.stringify({
+                    model: aiModel,
+                    prompt: prompt,
+                    stream: false,
+                    keep_alive: -1,
+                    options: {
+                        num_predict: 120,
+                        temperature: 0.2
+                    }
+                }),
+                signal: AbortSignal.timeout(timeoutMs)
+            });
+            
+            if (ollamaResponse.ok) {
+                const data = await ollamaResponse.json();
+                if (data.response) {
+                    finalSummary = data.response.trim();
+                }
+            } else {
+                throw new Error(`Ollama endpoint returned status ${ollamaResponse.status}`);
+            }
         }
     } catch (e: any) {
-        console.error("Ollama Local LLM failed:", e?.message || e);
-        // Clean, dynamic fallback that is accurate to the data, in case Llama 3.1 is offline
-        const profileStrength = extractedCgpa >= 8.0 ? "strong" : extractedCgpa >= 6.5 ? "competitive" : "developing";
-        finalSummary = `${extractedName || "The applicant"} has a ${profileStrength} academic background with a CGPA of ${extractedCgpa}/10. They are seeking a ${degreeObjective} program in ${exactCourse !== 'General' ? exactCourse : primaryDomain.replace('_', ' ')} with a budget of ${targetSymbol}${extractedBudget.toLocaleString('en-US', {maximumFractionDigits: 0})}.`;
-        
-        const isPureNumber = /^[0-9$,.\s]+$/.test(context);
-        if (context && context.trim().length > 3 && !isPureNumber) {
-            finalSummary += `\n\n*(Note: Could not fully process additional context because AI model (${process.env.LOCAL_AI_MODEL || 'llama3.1'}) at ${process.env.LOCAL_AI_ENDPOINT || 'port 11434'} had an issue: ${e?.message || e}. Please ensure Ollama is running.)*`;
-        }
+        console.warn("AI generation timed out or offline, activating instant structured counselor engine:", e?.message || e);
+        // Tier 3: Instant, deterministic 3-part structured report (100% reliable, zero latency)
+        const profileStrength = extractedCgpa >= 8.5 ? "exceptional" : extractedCgpa >= 7.5 ? "strong" : extractedCgpa >= 6.0 ? "competitive" : "foundational";
+        const countryLabel = (destinationCountry && destinationCountry !== "Not Decided" && destinationCountry !== "Other") ? destinationCountry : "preferred global destinations";
+        finalSummary = `**Academic Background**\n${extractedName} demonstrates a ${profileStrength} academic profile with a CGPA of ${extractedCgpa}/10, pursuing a ${degreeObjective} degree in ${exactCourse !== 'General' ? exactCourse : primaryDomain.replace(/_/g, ' ')}.\n\n**Financial & Location Preferences**\nTargeting higher education in ${countryLabel} with an estimated budget of ${targetSymbol}${extractedBudget.toLocaleString('en-US', {maximumFractionDigits: 0})}.\n\n**Counselor Notes**\n${context ? context.slice(0, 250).trim() : "Profile evaluated against university entry criteria, test score benchmarks, and financial parameters."}`;
     }
 
     const existingNotes = result.studentSummary;

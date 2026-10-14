@@ -373,10 +373,11 @@ export default function Home() {
           const errJson = JSON.parse(errText);
           if (errJson.error) errMsg = errJson.error;
         } catch {
-          if (errText.includes("<html") || errText.includes("<!DOCTYPE")) {
-            errMsg = `Server error (${res.status}): Netlify returned an error page.`;
+          const lower = errText.toLowerCase();
+          if (lower.includes("<html") || lower.includes("<!doctype") || lower.includes("<title>")) {
+            errMsg = `Server Timeout (${res.status}): The request timed out. Please try again.`;
           } else if (errText) {
-            errMsg = errText;
+            errMsg = errText.slice(0, 300);
           }
         }
         throw new Error(errMsg);
@@ -451,7 +452,14 @@ export default function Home() {
           try {
             const errJson = JSON.parse(errText);
             if (errJson.error) errMsg = errJson.error;
-          } catch {}
+          } catch {
+            const lower = errText.toLowerCase();
+            if (lower.includes("<html") || lower.includes("<!doctype") || lower.includes("<title>")) {
+              errMsg = `Server Timeout for ${country} (${res.status}): The request timed out.`;
+            } else if (errText) {
+              errMsg = errText.slice(0, 300);
+            }
+          }
           throw new Error(errMsg);
         }
         const data = await res.json();
