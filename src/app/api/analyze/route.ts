@@ -600,7 +600,7 @@ class LocalHeuristicBrain {
     }
     
     let extractedBacklogs = "0";
-    const numWords: Record<string, string> = { "zero": "0", "one": "1", "two": "2", "three": "3", "four": "4", "five": "5", "six": "6", "seven": "7", "eight": "8", "nine": "9", "ten": "10" };
+    const numWords: Record<string, string> = { "zero": "0", "one": "1", "two": "2", "three": "3", "four": "4", "five": "5", "six": "6", "seven": "7", "eight": "8", "nine": "9", "ten": "10", "none": "0", "nil": "0", "no": "0" };
     
     // Check if they had backlogs but cleared them
     const clearedBacklogMatch = lowerText.match(/(?:cleared|passed|resolved)\s*(?:all\s*)?(?:my\s*)?(?:[0-9]+|one|two|three|four|five|six|seven|eight|nine|ten)?\s*backlogs?/i) || lowerText.match(/backlogs?\s*(?:are\s*)?(?:all\s*)?(?:cleared|passed|resolved)/i) || lowerText.match(/(?:had|having)\s+(?:[0-9]+|one|two|three|four|five|six|seven|eight|nine|ten)\s*backlogs?\s*(?:but|and)\s*(?:now\s*)?(?:i\s*)?(?:have\s*)?(?:cleared|passed|resolved)/i);
@@ -608,10 +608,23 @@ class LocalHeuristicBrain {
     if (clearedBacklogMatch) {
       extractedBacklogs = "0 (Cleared)";
     } else {
-      const backlogMatch = lowerText.match(/([0-9]+|zero|one|two|three|four|five|six|seven|eight|nine|ten)\s*(?:[a-z\-]+\s*){0,2}backlogs?/i) || lowerText.match(/backlogs?[\s:]*(?:[a-z\-]+\s*){0,2}([0-9]+|zero|one|two|three|four|five|six|seven|eight|nine|ten)/i);
-      if (backlogMatch) {
-         const val = (backlogMatch[1] || backlogMatch[2] || "").trim().toLowerCase();
-         extractedBacklogs = numWords[val] || val;
+      // 1. Explicit labeled line FIRST (e.g. "Backlogs: 0", "Backlogs: 2", "Number of backlogs: 0", "Backlogs: None")
+      const explicitBacklog = lowerText.match(/(?:^|[^\w])(?:number of\s+)?backlogs?[\t :;=]+([0-9]+|zero|one|two|three|four|five|six|seven|eight|nine|ten|none|nil|no)\b/i);
+      
+      // 2. Negative phrases: "no backlogs", "without backlogs", "zero backlogs"
+      const zeroBacklog = lowerText.match(/\b(?:no|zero|without|nil|none)\s+(?:active\s+|current\s+)?backlogs?\b/i);
+
+      // 3. Conversational phrases: "I have 2 backlogs", "with 1 backlog", "having 3 active backlogs"
+      const conversationalBacklog = lowerText.match(/\b(?:have|having|with|got)\s+([0-9]+|one|two|three|four|five|six|seven|eight|nine|ten)\s+(?:active\s+|current\s+|standing\s+)?backlogs?\b/i);
+
+      if (explicitBacklog && explicitBacklog[1]) {
+        const val = explicitBacklog[1].trim().toLowerCase();
+        extractedBacklogs = numWords[val] || val;
+      } else if (zeroBacklog) {
+        extractedBacklogs = "0";
+      } else if (conversationalBacklog && conversationalBacklog[1]) {
+        const val = conversationalBacklog[1].trim().toLowerCase();
+        extractedBacklogs = numWords[val] || val;
       }
     }
 
@@ -802,11 +815,18 @@ class LocalHeuristicBrain {
     // 6. FILTER AND MATCH COLLEGES BASED ON GPA, BUDGET & COUNTRY
     let eligibleColleges = this.universityDB.filter(uni => uni.domain === primaryDomain);
     
-    // BACKLOG STRICT FILTER: If active backlogs exist, block all university matches
+    // BACKLOG INTELLIGENCE: Adjust university tier matching based on active backlogs
     const activeBacklogs = parseInt(extractedBacklogs);
     if (!isNaN(activeBacklogs) && activeBacklogs > 0 && !extractedBacklogs.includes("Cleared")) {
-      eligibleColleges = [];
-      result.studentSummary += " NOTE: Active backlogs detected. Most international universities require all backlogs to be strictly cleared prior to admission. No colleges will be recommended until the backlogs are successfully cleared.";
+      if (activeBacklogs > 6) {
+        // High backlog count (> 6): Restrict to flexible/pathway institutions
+        eligibleColleges = eligibleColleges.filter(uni => uni.minCgpa <= 6.5);
+        result.studentSummary += ` NOTE: ${activeBacklogs} active backlogs detected. Recommendations have been focused on institutions with flexible or pathway admission programs.`;
+      } else {
+        // Moderate backlogs (1 to 6): Filter out ultra-strict Ivy/Tier-1 institutions that demand 0 backlogs
+        eligibleColleges = eligibleColleges.filter(uni => uni.minCgpa <= 8.0);
+        result.studentSummary += ` NOTE: ${activeBacklogs} active backlog(s) detected. Recommendations adjusted for conditional admission pathways where backlogs can be cleared prior to enrollment.`;
+      }
     }
     
     if (destinationCountry && destinationCountry !== "Not Decided" && destinationCountry !== "Other") {
@@ -956,8 +976,8 @@ class LocalHeuristicBrain {
 
     const rateMultiplier = rates[targetCurrency] || 1;
 
-    // DYNAMIC MOCK DATA FALLBACK: Guarantee at least one result for testing purposes if backlogs don't block it
-    if (result.recommendedColleges.length === 0 && (!activeBacklogs || activeBacklogs <= 0 || extractedBacklogs.includes("Cleared"))) {
+    // DYNAMIC MOCK DATA FALLBACK: Guarantee at least one result for testing purposes
+    if (result.recommendedColleges.length === 0) {
         const countryLabel = (destinationCountry && destinationCountry !== "Not Decided" && destinationCountry !== "Other") ? destinationCountry : "Global";
         const domainLabel = primaryDomain.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
         
