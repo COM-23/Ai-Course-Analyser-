@@ -36,13 +36,24 @@ export function getDb(): DatabaseAdapter {
     }
   }
 
-  if (process.env.VERCEL) {
+  const isServerless = !!(
+    process.env.NETLIFY ||
+    process.env.VERCEL ||
+    process.env.AWS_LAMBDA_FUNCTION_NAME ||
+    process.env.LAMBDA_TASK_ROOT ||
+    process.env.NOW_REGION ||
+    (typeof process.cwd === 'function' && process.cwd().startsWith('/var/task'))
+  );
+
+  if (isServerless) {
     const tmpPath = '/tmp/students.db';
     if (!fs.existsSync(tmpPath)) {
       try {
-        if (fs.existsSync(dbPath)) fs.copyFileSync(dbPath, tmpPath);
+        if (fs.existsSync(dbPath)) {
+          fs.copyFileSync(dbPath, tmpPath);
+        }
       } catch(e) {
-        console.warn("Could not copy db to /tmp");
+        console.warn("[DB] Could not copy initial db to /tmp:", e);
       }
     }
     dbPath = tmpPath;
@@ -113,7 +124,10 @@ export function getDb(): DatabaseAdapter {
 
     if (!betterLoaded) {
       // 3. Absolute Bulletproof Pure-JS Engine (Zero native C++ bindings, 100% crash-proof)
-      db = createPureJsDatabase(path.join(process.cwd(), 'students_fallback.json'));
+      const fallbackPath = isServerless 
+        ? '/tmp/students_fallback.json' 
+        : path.join(process.cwd(), 'students_fallback.json');
+      db = createPureJsDatabase(fallbackPath);
     }
   }
 
@@ -189,12 +203,25 @@ function createPureJsDatabase(storagePath: string): DatabaseAdapter {
     students: []
   };
 
-  const seedPath = path.resolve(__dirname, 'db-seed.json');
+  const seedCandidates = [
+    path.resolve(__dirname, 'db-seed.json'),
+    path.join(process.cwd(), 'src/lib/db-seed.json'),
+    path.join(process.cwd(), 'db-seed.json'),
+    path.resolve(__dirname, '../../src/lib/db-seed.json')
+  ];
+  let seedPath = '';
+  for (const c of seedCandidates) {
+    if (fs.existsSync(c)) {
+      seedPath = c;
+      break;
+    }
+  }
+
   if (fs.existsSync(storagePath)) {
     try {
       memoryData = JSON.parse(fs.readFileSync(storagePath, 'utf-8'));
     } catch {}
-  } else if (fs.existsSync(seedPath)) {
+  } else if (seedPath && fs.existsSync(seedPath)) {
     try {
       memoryData = JSON.parse(fs.readFileSync(seedPath, 'utf-8'));
     } catch {}
