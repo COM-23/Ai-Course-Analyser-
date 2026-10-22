@@ -343,7 +343,26 @@ class LocalHeuristicBrain {
        }
     }
     
-    const targetIntake = manualIntake || "Not Decided";
+    let targetIntake = (manualIntake && manualIntake !== "Not Decided") ? manualIntake : "";
+    if (!targetIntake) {
+      const combinedText = `${text} ${context}`;
+      const intakeMatch1 = combinedText.match(/(?:target\s+intake|intake|term|session)?\s*[:=-]?[ \t]*\b(fall|spring|winter|summer|autumn|january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|sep|sept|oct|nov|dec)\s*['’]?\s*(20\d\d|\d\d)\b/i);
+      if (intakeMatch1) {
+        const season = intakeMatch1[1].charAt(0).toUpperCase() + intakeMatch1[1].slice(1).toLowerCase();
+        let year = intakeMatch1[2];
+        if (year.length === 2) year = '20' + year;
+        targetIntake = `${season} ${year}`;
+      } else {
+        const intakeMatch2 = combinedText.match(/\b(20\d\d)\s*(fall|spring|winter|summer|autumn)\b/i);
+        if (intakeMatch2) {
+          const season = intakeMatch2[2].charAt(0).toUpperCase() + intakeMatch2[2].slice(1).toLowerCase();
+          targetIntake = `${season} ${intakeMatch2[1]}`;
+        }
+      }
+    }
+    if (!targetIntake) {
+      targetIntake = "Not Decided";
+    }
 
     // 1. EXTRACT NAME
     let extractedName = "Unknown Student";
@@ -428,19 +447,15 @@ class LocalHeuristicBrain {
 
     // 2. EXTRACT ACADEMIC PERFORMANCE (GPA/CGPA/PERCENTAGE)
     let extractedCgpa = 7.5; // Default average CGPA
-    const cgpaMatch = lowerText.match(/(?:cgps|cgp|cgpa|gpa|pointer|score)[a-z \t]{0,20}(?:\s+of|\s+is|in)?[\s:=]*(\d+\.?\d*)(?:\s*\/\s*(\d+\.?\d*))?/i) || lowerText.match(/(\d+\.?\d*)\s*(?:cgps|cgp|cgpa|gpa|pointer|score)/i);
-    const percentMatch = lowerText.match(/(\d+\.?\d*)\s*(?:%|percent)/i) || lowerText.match(/percentage(?:\s+of|\s+is)?[\s:=]*(\d+\.?\d*)/i);
-    
-    // Written percentage (e.g. "eighty five percent")
-    let percentWordValue = 0;
-    const percentWordMatch = lowerText.match(/(seventy|eighty|ninety)[ \-]*(one|two|three|four|five|six|seven|eight|nine)?[\s]*(?:%|percent)/i);
-    if (percentWordMatch) {
-       const tensMap: Record<string, number> = {"seventy": 70, "eighty": 80, "ninety": 90};
-       const onesMap: Record<string, number> = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9};
-       const t = tensMap[percentWordMatch[1].toLowerCase()] || 0;
-       const o = percentWordMatch[2] ? (onesMap[percentWordMatch[2].toLowerCase()] || 0) : 0;
-       percentWordValue = t + o;
-    }
+    let cgpaDetected = false;
+
+    // Pattern 1: Number BEFORE keyword (e.g. "8.2 cgpa", "8.2/10 cgpa", "7.8 gpa", "9.1 pointer")
+    const beforeMatch = lowerText.match(/(\d+(?:\.\d+)?)\s*(?:\/\s*(\d+(?:\.\d+)?)\s*)?(?:cgpa|cgps|cgp|gpa|pointer|score)\b/i);
+
+    // Pattern 2: Keyword followed by number on the SAME line (no newline bridging to budgets! e.g. "cgpa: 8.2", "cgpa is 8.2", "gpa: 3.8/4.0")
+    const afterMatch = lowerText.match(/(?:cgpa|cgps|cgp|gpa|pointer|score)[a-z \t]{0,15}(?:of|is|in)?[ \t:=]+(\d+(?:\.\d+)?)(?:[ \t]*\/[ \t]*(\d+(?:\.\d+)?))?/i);
+
+    const cgpaMatch = beforeMatch || afterMatch;
 
     if (cgpaMatch && cgpaMatch[1]) {
       const parsed = parseFloat(cgpaMatch[1]);
@@ -448,41 +463,70 @@ class LocalHeuristicBrain {
 
       if (scale === 4 || scale === 4.0) {
         extractedCgpa = (parsed / 4) * 10;
+        cgpaDetected = true;
       } else if (scale === 10 || scale === 10.0) {
         extractedCgpa = parsed;
+        cgpaDetected = true;
       } else if (parsed > 0 && parsed <= 4.0) {
         extractedCgpa = (parsed / 4) * 10;
+        cgpaDetected = true;
       } else if (parsed > 10 && parsed <= 100) {
         extractedCgpa = parsed / 10;
+        cgpaDetected = true;
       } else if (parsed > 0 && parsed <= 10) {
         extractedCgpa = parsed;
-      }
-    } else if (percentMatch && percentMatch[1]) {
-      const parsed = parseFloat(percentMatch[1]);
-      if (parsed > 10 && parsed <= 100) {
-        extractedCgpa = parsed / 10;
-      } else if (parsed > 0 && parsed <= 10) {
-        extractedCgpa = parsed;
-      }
-    } else if (percentWordValue > 0) {
-      extractedCgpa = percentWordValue / 10;
-    } else {
-      // 2.5 FALLBACK: SLANG DICTIONARY & MATH NUMBER SNIFFER
-      const slangMatch = lowerText.match(/(?:pointer|score|grade|got an?|scored an?)[\s:=]*([\d\.]+)(?:\s*\/\s*([\d\.]+))?/i);
-      const isolatedDecimalMatch = lowerText.match(/(?:\s|^)([5-9]\.\d|10\.0)(?:\s|$)/); // e.g. " 8.5 "
-
-      if (slangMatch && slangMatch[1]) {
-        const parsed = parseFloat(slangMatch[1]);
-        if (parsed > 0 && parsed <= 4.0) {
-          extractedCgpa = (parsed / 4) * 10;
-        } else if (parsed > 4.0 && parsed <= 10.0) {
-          extractedCgpa = parsed;
-        }
-      } else if (isolatedDecimalMatch && isolatedDecimalMatch[1]) {
-        // Pure math sniffing fallback
-        extractedCgpa = parseFloat(isolatedDecimalMatch[1]);
+        cgpaDetected = true;
       }
     }
+
+    if (!cgpaDetected) {
+      const percentMatch = lowerText.match(/(\d+(?:\.\d+)?)\s*(?:%|\bpercent\b)/i) || lowerText.match(/percentage(?:\s+of|\s+is)?[ \t:=]*(\d+(?:\.\d+)?)/i);
+      
+      // Written percentage (e.g. "eighty five percent")
+      let percentWordValue = 0;
+      const percentWordMatch = lowerText.match(/(seventy|eighty|ninety)[ \-]*(one|two|three|four|five|six|seven|eight|nine)?[\s]*(?:%|percent)/i);
+      if (percentWordMatch) {
+         const tensMap: Record<string, number> = {"seventy": 70, "eighty": 80, "ninety": 90};
+         const onesMap: Record<string, number> = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9};
+         const t = tensMap[percentWordMatch[1].toLowerCase()] || 0;
+         const o = percentWordMatch[2] ? (onesMap[percentWordMatch[2].toLowerCase()] || 0) : 0;
+         percentWordValue = t + o;
+      }
+
+      if (percentMatch && percentMatch[1]) {
+        const parsed = parseFloat(percentMatch[1]);
+        if (parsed > 10 && parsed <= 100) {
+          extractedCgpa = parsed / 10;
+          cgpaDetected = true;
+        } else if (parsed > 0 && parsed <= 10) {
+          extractedCgpa = parsed;
+          cgpaDetected = true;
+        }
+      } else if (percentWordValue > 0) {
+        extractedCgpa = percentWordValue / 10;
+        cgpaDetected = true;
+      } else {
+        // 2.5 FALLBACK: SLANG DICTIONARY & MATH NUMBER SNIFFER
+        const slangMatch = lowerText.match(/(?:pointer|score|grade|got an?|scored an?)[ \t:=]*([\d\.]+)(?:[ \t]*\/[ \t]*([\d\.]+))?/i);
+        const isolatedDecimalMatch = lowerText.match(/(?:\s|^)([5-9]\.\d|10\.0)(?:\s|$)/); // e.g. " 8.5 "
+
+        if (slangMatch && slangMatch[1]) {
+          const parsed = parseFloat(slangMatch[1]);
+          if (parsed > 0 && parsed <= 4.0) {
+            extractedCgpa = (parsed / 4) * 10;
+            cgpaDetected = true;
+          } else if (parsed > 4.0 && parsed <= 10.0) {
+            extractedCgpa = parsed;
+            cgpaDetected = true;
+          }
+        } else if (isolatedDecimalMatch && isolatedDecimalMatch[1]) {
+          // Pure math sniffing fallback
+          extractedCgpa = parseFloat(isolatedDecimalMatch[1]);
+          cgpaDetected = true;
+        }
+      }
+    }
+    extractedCgpa = parseFloat(extractedCgpa.toFixed(1));
 
     // 3. EXTRACT BUDGET & CURRENCY CONVERSION (Supporting USD, INR, Lakhs)
     let extractedBudget = 50000; // Default budget USD
