@@ -32,6 +32,7 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 # API keys & security secrets
 api-keys.json
@@ -49,3 +50,10 @@ api-keys*.json
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Large raw CSV databases
+programs.csv
+programs.raw.csv
+*.csv.bak
+*.zip
+

@@ -174,12 +174,62 @@ export function getDb(): DatabaseAdapter {
       role TEXT,
       createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+    CREATE TABLE IF NOT EXISTS programs (
+      id INTEGER PRIMARY KEY,
+      name TEXT,
+      university_id INTEGER,
+      university_name TEXT,
+      university_city TEXT,
+      university_state TEXT,
+      university_country TEXT,
+      country_name TEXT,
+      study_level TEXT,
+      domain TEXT,
+      duration INTEGER,
+      campus TEXT,
+      tuition_amount REAL,
+      tuition_currency TEXT,
+      tuition_fee_formatted TEXT,
+      ielts_score REAL,
+      toefl_score REAL,
+      pte_score REAL,
+      det_score REAL,
+      gre_score REAL,
+      gmat_score REAL,
+      min_cgpa REAL,
+      max_backlogs INTEGER,
+      entry_requirement TEXT,
+      intakes TEXT,
+      deadlines TEXT,
+      scholarship_available INTEGER,
+      course_link TEXT,
+      logo_url TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_programs_country ON programs(country_name);
+    CREATE INDEX IF NOT EXISTS idx_programs_uni_country ON programs(university_country);
+    CREATE INDEX IF NOT EXISTS idx_programs_domain ON programs(domain);
+    CREATE INDEX IF NOT EXISTS idx_programs_level ON programs(study_level);
+    CREATE INDEX IF NOT EXISTS idx_programs_tuition ON programs(tuition_amount);
+    CREATE INDEX IF NOT EXISTS idx_programs_name ON programs(name);
+    CREATE INDEX IF NOT EXISTS idx_programs_min_cgpa ON programs(min_cgpa);
+    CREATE INDEX IF NOT EXISTS idx_programs_country_domain ON programs(country_name, domain);
+    CREATE INDEX IF NOT EXISTS idx_programs_country_level ON programs(country_name, study_level);
   `);
 
   try { db.exec('ALTER TABLE students ADD COLUMN counselor_id INTEGER DEFAULT 1;'); } catch (e) {}
   try { db.exec('ALTER TABLE users ADD COLUMN failedLoginAttempts INTEGER DEFAULT 0;'); } catch (e) {}
   try { db.exec('ALTER TABLE users ADD COLUMN lockoutUntil DATETIME;'); } catch (e) {}
   try { db.exec('ALTER TABLE students ADD COLUMN comparisonData JSON;'); } catch (e) {}
+  try { db.exec('ALTER TABLE universities ADD COLUMN minIelts TEXT DEFAULT "6.5 (min 6.0 each)";'); } catch (e) {}
+  try { db.exec('ALTER TABLE universities ADD COLUMN minToefl TEXT DEFAULT "88";'); } catch (e) {}
+  try { db.exec('ALTER TABLE universities ADD COLUMN minPte TEXT DEFAULT "62";'); } catch (e) {}
+  try { db.exec('ALTER TABLE universities ADD COLUMN minDuolingo TEXT DEFAULT "115";'); } catch (e) {}
+  try { db.exec('ALTER TABLE universities ADD COLUMN ieltsWaiver TEXT DEFAULT "Yes - 70%+ in CBSE/ICSE 12th English";'); } catch (e) {}
+  try { db.exec('ALTER TABLE universities ADD COLUMN maxBacklogs INTEGER DEFAULT 4;'); } catch (e) {}
+  try { db.exec('ALTER TABLE universities ADD COLUMN ranking TEXT DEFAULT "Top Tier";'); } catch (e) {}
+  try { db.exec('ALTER TABLE universities ADD COLUMN scholarships TEXT DEFAULT "Available";'); } catch (e) {}
+  try { db.exec('ALTER TABLE universities ADD COLUMN intakes TEXT DEFAULT "Fall, Spring";'); } catch (e) {}
+  try { db.exec('ALTER TABLE universities ADD COLUMN courseLink TEXT;'); } catch (e) {}
 
   const countStmt = db.prepare('SELECT COUNT(*) as count FROM users');
   const { count } = countStmt.get() as { count: number };

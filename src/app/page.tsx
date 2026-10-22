@@ -34,11 +34,14 @@ import {
   Sun,
   Plus,
   Key,
-  Download
+  Download,
+  ExternalLink
 } from "lucide-react";
 import * as htmlToImage from 'html-to-image';
 import { jsPDF } from 'jspdf';
 import { BarChart as RechartsBarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { ReportPDFView } from "@/components/ReportPDFView";
+import { BRAND_LOGO_DARK, BRAND_LOGO_LIGHT } from "@/lib/brandLogos";
 
 type CollegeMatch = {
   name: string;
@@ -56,6 +59,7 @@ type CollegeMatch = {
   currency: string;
   applicationDeadline: string;
   tuitionConverted?: string;
+  courseLink?: string;
 };
 
 type AnalysisResult = {
@@ -159,42 +163,75 @@ export default function Home() {
   const [aiStrictness, setAiStrictness] = useState("standard");
 
   const reportRef = useRef<HTMLDivElement>(null);
+  const exportRef = useRef<HTMLDivElement>(null);
   const [isExporting, setIsExporting] = useState(false);
 
   const exportToPDF = async () => {
-    if (!reportRef.current || !result) return;
+    if (!result) return;
     setIsExporting(true);
     
     try {
-      const imgData = await htmlToImage.toPng(reportRef.current, {
-        backgroundColor: '#111113',
-        pixelRatio: 2
+      // Allow DOM tick for export element to render
+      await new Promise(resolve => setTimeout(resolve, 150));
+      
+      const targetElement = exportRef.current || reportRef.current;
+      if (!targetElement) {
+        throw new Error("Report element is not available for export");
+      }
+      
+      const isDark = theme === "dark";
+      const bgColor = isDark ? "#0D0E12" : "#FFFFFF";
+      
+      const imgData = await htmlToImage.toPng(targetElement, {
+        backgroundColor: bgColor,
+        pixelRatio: 2,
+        cacheBust: true,
+        style: {
+          visibility: "visible",
+          opacity: "1",
+        }
       });
       
       const pdf = new jsPDF({
-        orientation: 'portrait',
-        unit: 'mm',
-        format: 'a4'
+        orientation: "portrait",
+        unit: "mm",
+        format: "a4",
       });
       
       const pdfWidth = pdf.internal.pageSize.getWidth();
-      const nodeWidth = reportRef.current.offsetWidth || 1200;
-      const nodeHeight = reportRef.current.offsetHeight || 800;
+      const pdfPageHeight = pdf.internal.pageSize.getHeight();
+      const nodeWidth = targetElement.offsetWidth || 1100;
+      const nodeHeight = targetElement.offsetHeight || 1600;
       const pdfHeight = (nodeHeight * pdfWidth) / nodeWidth;
       
-      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+      pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, pdfHeight, undefined, "FAST");
       
-      let heightLeft = pdfHeight - pdf.internal.pageSize.getHeight();
-      let position = -pdf.internal.pageSize.getHeight();
+      // Explicitly stamp the high-resolution Learn Overseas logo directly onto the header box of Page 1
+      // Image 2 (BRAND_LOGO_LIGHT) for Light Theme, Image 3 (BRAND_LOGO_DARK) for Dark Theme
+      const logoData = isDark ? BRAND_LOGO_DARK : BRAND_LOGO_LIGHT;
+      const scale = pdfWidth / nodeWidth;
+      const boxCenter_x = (56 + 34) * scale;
+      const boxCenter_y = (48 + 6 + 32 + 34) * scale;
+      const logoSize = 48 * scale;
+      const logoX = boxCenter_x - (logoSize / 2);
+      const logoY = boxCenter_y - (logoSize / 2);
       
-      while (heightLeft >= 0) {
+      pdf.addImage(logoData, "PNG", logoX, logoY, logoSize, logoSize, undefined, "FAST");
+      
+      let heightLeft = pdfHeight - pdfPageHeight;
+      let position = -pdfPageHeight;
+      
+      while (heightLeft > 2) {
         pdf.addPage();
-        pdf.addImage(imgData, 'PNG', 0, position, pdfWidth, pdfHeight);
-        heightLeft -= pdf.internal.pageSize.getHeight();
-        position -= pdf.internal.pageSize.getHeight();
+        pdf.addImage(imgData, "PNG", 0, position, pdfWidth, pdfHeight, undefined, "FAST");
+        heightLeft -= pdfPageHeight;
+        position -= pdfPageHeight;
       }
       
-      pdf.save(`${result.studentDetails?.name?.replace(/\s+/g, '_') || 'Student'}_Intelligence_Report.pdf`);
+      const activeRes = activeCompareTab === -1 ? result : (compareResults[activeCompareTab] ?? result);
+      const studentName = activeRes?.studentDetails?.name?.replace(/\s+/g, "_") || "Student";
+      const themeTag = isDark ? "Dark" : "Light";
+      pdf.save(`${studentName}_Learn_Overseas_Report_${themeTag}.pdf`);
     } catch (err: any) {
       console.error("PDF Export failed:", err);
       alert("Failed to export PDF: " + (err.message || err.toString()));
@@ -274,7 +311,7 @@ export default function Home() {
     "science_technology", "business_management", "commerce_management", 
     "arts_humanities", "arts_humanities_social_sciences", "medicine_allied_health", 
     "law", "education", "hospitality_tourism_events", 
-    "performing_arts_media", "agriculture_veterinary"
+    "performing_arts_media", "agricultural_sciences", "agriculture_veterinary"
   ];
   
   const historyDomains = history.map(h => h.studentDetails?.primaryDomain || "General");
@@ -665,14 +702,18 @@ export default function Home() {
   if (!currentUser) {
     return (
       <div className="min-h-screen bg-[#0A0A0B] text-slate-200 flex items-center justify-center relative overflow-hidden">
-        <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] rounded-full bg-indigo-900/20 blur-[120px] animate-blob" />
-        <div className="absolute bottom-[-20%] right-[-10%] w-[50%] h-[50%] rounded-full bg-fuchsia-900/10 blur-[120px] animate-blob" style={{ animationDelay: '2s' }} />
+        <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] rounded-full bg-[#FC7133]/15 blur-[120px] animate-blob" />
+        <div className="absolute bottom-[-20%] right-[-10%] w-[50%] h-[50%] rounded-full bg-[#7DC1B1]/10 blur-[120px] animate-blob" style={{ animationDelay: '2s' }} />
         
         <div className="w-full max-w-md relative z-10 p-8">
           <div className="mb-10 text-center">
-            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-indigo-500 to-fuchsia-500 p-px shadow-xl shadow-indigo-500/20 mx-auto mb-6">
-              <div className="w-full h-full bg-[#111113] rounded-2xl flex items-center justify-center">
-                <BrainCircuit className="w-8 h-8 text-indigo-400" />
+            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#FC7133] via-[#F9D440] to-[#7DC1B1] p-px shadow-xl shadow-[#FC7133]/25 mx-auto mb-6">
+              <div className="w-full h-full bg-[#111113] rounded-2xl flex items-center justify-center p-3">
+                <img 
+                  src={theme === 'light' ? "/logo-light.png" : "/logo-dark.png"} 
+                  alt="Learn Overseas Logo" 
+                  className={`w-9 h-9 object-contain transition-all ${theme === 'light' ? 'invert' : ''}`}
+                />
               </div>
             </div>
             <h1 className="text-3xl font-black text-white">Learn Overseas</h1>
@@ -693,7 +734,7 @@ export default function Home() {
                   type="text" 
                   value={loginUsername}
                   onChange={(e) => setLoginUsername(e.target.value)}
-                  className="w-full px-4 py-3 bg-black/40 border border-white/5 rounded-xl text-sm text-slate-200 outline-none focus:border-indigo-500/50 transition-colors"
+                  className="w-full px-4 py-3 bg-black/40 border border-white/5 rounded-xl text-sm text-slate-200 outline-none focus:border-[#FC7133]/50 transition-colors"
                   placeholder="Enter username..."
                   required
                 />
@@ -704,14 +745,14 @@ export default function Home() {
                   type="password" 
                   value={loginPassword}
                   onChange={(e) => setLoginPassword(e.target.value)}
-                  className="w-full px-4 py-3 bg-black/40 border border-white/5 rounded-xl text-sm text-slate-200 outline-none focus:border-indigo-500/50 transition-colors"
+                  className="w-full px-4 py-3 bg-black/40 border border-white/5 rounded-xl text-sm text-slate-200 outline-none focus:border-[#FC7133]/50 transition-colors"
                   placeholder="Enter password..."
                   required
                 />
               </div>
               <button 
                 type="submit"
-                className="w-full mt-4 py-3 bg-indigo-500 hover:bg-indigo-600 text-white font-bold rounded-xl text-sm transition-colors shadow-lg shadow-indigo-500/25"
+                className="w-full mt-4 py-3 bg-[#FC7133] hover:bg-[#e65d20] text-white font-bold rounded-xl text-sm transition-colors shadow-lg shadow-[#FC7133]/25 cursor-pointer"
               >
                 Log In Securely
               </button>
@@ -723,23 +764,28 @@ export default function Home() {
   }
 
   return (
-    <div className={`min-h-screen bg-[#0A0A0B] text-slate-200 selection:bg-indigo-500/30 flex overflow-hidden ${theme === 'light' ? 'invert hue-rotate-180' : ''}`}>
+    <>
+    <div className={`min-h-screen bg-[#0A0A0B] text-slate-200 selection:bg-[#FC7133]/30 flex overflow-hidden ${theme === 'light' ? 'invert hue-rotate-180' : ''}`}>
       
 
 
       {/* Premium Gradient Background */}
       <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden">
-        <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] rounded-full bg-indigo-900/20 blur-[120px] animate-blob" />
-        <div className="absolute bottom-[-20%] right-[-10%] w-[50%] h-[50%] rounded-full bg-fuchsia-900/10 blur-[120px] animate-blob" style={{ animationDelay: '2s' }} />
+        <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] rounded-full bg-[#FC7133]/15 blur-[120px] animate-blob" />
+        <div className="absolute bottom-[-20%] right-[-10%] w-[50%] h-[50%] rounded-full bg-[#7DC1B1]/10 blur-[120px] animate-blob" style={{ animationDelay: '2s' }} />
       </div>
 
       {/* Global Sidebar */}
       <aside className="relative z-20 w-[260px] bg-[#0A0A0B]/90 backdrop-blur-3xl border-r border-white/5 flex flex-col hidden lg:flex shrink-0">
         <div className="p-8 border-b border-white/5 flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-fuchsia-500 p-px shadow-lg shadow-indigo-500/20 shrink-0">
-              <div className="w-full h-full bg-[#111113] rounded-xl flex items-center justify-center">
-                <BrainCircuit className="w-5 h-5 text-indigo-400" />
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#FC7133] via-[#F9D440] to-[#7DC1B1] p-px shadow-lg shadow-[#FC7133]/20 shrink-0">
+              <div className="w-full h-full bg-[#111113] rounded-xl flex items-center justify-center p-2">
+                <img 
+                  src={theme === 'light' ? "/logo-light.png" : "/logo-dark.png"} 
+                  alt="Learn Overseas Logo" 
+                  className={`w-6 h-6 object-contain transition-all ${theme === 'light' ? 'invert' : ''}`}
+                />
               </div>
             </div>
             <div>
@@ -751,24 +797,24 @@ export default function Home() {
             className="p-2 rounded-full bg-white/5 border border-white/10 hover:bg-white/10 text-white transition-all shadow-md shrink-0 ml-2"
             title="Toggle Theme"
           >
-            {theme === 'dark' ? <Sun className="w-4 h-4 text-indigo-400" /> : <Moon className="w-4 h-4 text-indigo-400" />}
+            {theme === 'dark' ? <Sun className="w-4 h-4 text-[#F9D440]" /> : <Moon className="w-4 h-4 text-[#FC7133]" />}
           </button>
         </div>
 
         <div className="flex-1 py-8 px-4 flex flex-col gap-2">
            <button 
              onClick={() => setActiveTab("dashboard")}
-             className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${activeTab === 'dashboard' ? 'bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 shadow-inner' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}>
+             className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${activeTab === 'dashboard' ? 'bg-[#FC7133]/15 text-[#FC7133] border border-[#FC7133]/30 shadow-inner' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}>
              <LayoutDashboard className="w-4 h-4" /> Dashboard
            </button>
            <button 
              onClick={() => setActiveTab("analyzer")}
-             className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${activeTab === 'analyzer' ? 'bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 shadow-inner' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}>
+             className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${activeTab === 'analyzer' ? 'bg-[#FC7133]/15 text-[#FC7133] border border-[#FC7133]/30 shadow-inner' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}>
              <Sparkles className="w-4 h-4" /> AI Analyzer
            </button>
            <button 
              onClick={() => setActiveTab("roster")}
-             className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${activeTab === 'roster' ? 'bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 shadow-inner' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}>
+             className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${activeTab === 'roster' ? 'bg-[#FC7133]/15 text-[#FC7133] border border-[#FC7133]/30 shadow-inner' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}>
              <Users className="w-4 h-4" /> Student Roster
            </button>
            
@@ -782,13 +828,13 @@ export default function Home() {
            </button>
            
            <div className="mt-auto flex flex-col gap-2">
-             <div className="p-4 rounded-xl bg-gradient-to-br from-indigo-500/10 to-fuchsia-500/10 border border-indigo-500/10 mb-2 flex flex-col gap-4">
+             <div className="p-4 rounded-xl bg-gradient-to-br from-[#FC7133]/10 to-[#F9D440]/10 border border-[#FC7133]/20 mb-2 flex flex-col gap-4">
                <div className="flex items-center gap-3">
-                 <div className="w-8 h-8 rounded-full bg-indigo-500/20 flex items-center justify-center border border-indigo-500/30 shrink-0">
-                   <span className="text-xs font-black text-indigo-300">{currentUser.name.charAt(0)}</span>
+                 <div className="w-8 h-8 rounded-full bg-[#FC7133]/20 flex items-center justify-center border border-[#FC7133]/30 shrink-0">
+                   <span className="text-xs font-black text-[#FC7133]">{currentUser.name.charAt(0)}</span>
                  </div>
                  <div className="min-w-0">
-                   <h4 className="text-xs font-bold text-indigo-300 truncate">{currentUser.name}</h4>
+                   <h4 className="text-xs font-bold text-slate-200 truncate">{currentUser.name}</h4>
                    <p className="text-[10px] text-slate-400 capitalize truncate">{currentUser.role.replace('_', ' ')}</p>
                  </div>
                </div>
@@ -821,9 +867,14 @@ export default function Home() {
           <div className="flex gap-3">
             <button 
               onClick={handleReset}
-              className="px-5 py-2.5 bg-[#1F1F22] hover:bg-white/10 text-white text-sm font-bold rounded-xl transition-all border border-indigo-500/30 hover:border-indigo-500 flex items-center gap-2"
+              className="px-5 py-2.5 bg-[#1F1F22] hover:bg-[#FC7133]/10 text-white text-sm font-bold rounded-xl transition-all border border-[#FC7133]/40 hover:border-[#FC7133] flex items-center gap-2.5 shadow-md shadow-[#FC7133]/10 cursor-pointer"
             >
-              <BrainCircuit className="w-4 h-4" /> Analyze Another Student
+              <img 
+                src={theme === 'light' ? "/logo-light.png" : "/logo-dark.png"} 
+                alt="LO" 
+                className={`w-4 h-4 object-contain shrink-0 ${theme === 'light' ? 'invert' : ''}`}
+              />
+              <span>Analyze Another Student</span>
             </button>
           </div>
         </header>
@@ -843,26 +894,26 @@ export default function Home() {
                   onClick={() => setInputType("pdf")}
                   className={`flex-1 flex items-center justify-center py-3.5 text-sm font-semibold rounded-xl transition-all duration-500 ease-out ${
                     inputType === "pdf" 
-                      ? "bg-gradient-to-r from-indigo-500/20 to-purple-500/20 text-indigo-100 shadow-[0_0_20px_rgba(99,102,241,0.1)] border border-indigo-500/30" 
+                      ? "bg-gradient-to-r from-[#FC7133]/20 via-[#F9D440]/15 to-[#FC7133]/20 text-[#FC7133] shadow-[0_0_20px_rgba(252,113,51,0.2)] border border-[#FC7133]/40" 
                       : "text-slate-400 hover:text-white hover:bg-white/[0.02] border border-transparent"
                   }`}
                 >
-                  <FileText className={`w-4 h-4 mr-2 transition-colors ${inputType === "pdf" ? "text-indigo-400" : "text-slate-500"}`} /> PDF Upload
+                  <FileText className={`w-4 h-4 mr-2 transition-colors ${inputType === "pdf" ? "text-[#FC7133]" : "text-slate-500"}`} /> PDF Upload
                 </button>
                 <button
                   onClick={() => setInputType("text")}
                   className={`flex-1 flex items-center justify-center py-3.5 text-sm font-semibold rounded-xl transition-all duration-500 ease-out ${
                     inputType === "text" 
-                      ? "bg-gradient-to-r from-emerald-500/20 to-teal-500/20 text-emerald-100 shadow-[0_0_20px_rgba(16,185,129,0.1)] border border-emerald-500/30" 
+                      ? "bg-gradient-to-r from-[#7DC1B1]/20 to-[#BBCDE2]/20 text-[#7DC1B1] shadow-[0_0_20px_rgba(125,193,177,0.2)] border border-[#7DC1B1]/40" 
                       : "text-slate-400 hover:text-white hover:bg-white/[0.02] border border-transparent"
                   }`}
                 >
-                  <BarChart className={`w-4 h-4 mr-2 transition-colors ${inputType === "text" ? "text-emerald-400" : "text-slate-500"}`} /> Manual Text
+                  <BarChart className={`w-4 h-4 mr-2 transition-colors ${inputType === "text" ? "text-[#7DC1B1]" : "text-slate-500"}`} /> Manual Text
                 </button>
               </div>
 
               {/* Data Input Area */}
-              <div className="flex-1 bg-[#0a0a0c] border border-white/5 rounded-2xl overflow-hidden relative group ring-1 ring-transparent focus-within:ring-indigo-500/20 focus-within:border-indigo-500/30 transition-all duration-300 shadow-inner">
+              <div className="flex-1 bg-[#0a0a0c] border border-white/5 rounded-2xl overflow-hidden relative group ring-1 ring-transparent focus-within:ring-[#FC7133]/20 focus-within:border-[#FC7133]/30 transition-all duration-300 shadow-inner">
                 {inputType === "pdf" ? (
                   pdfUrl ? (
                     <div className="relative w-full h-full group">
@@ -882,12 +933,12 @@ export default function Home() {
                       onDrop={handleFileDrop}
                       onClick={() => fileInputRef.current?.click()}
                       className={`w-full h-full flex flex-col items-center justify-center p-8 cursor-pointer transition-all duration-300 ${
-                        isDragging ? "bg-indigo-500/10 border-2 border-dashed border-indigo-500" : "hover:bg-white/[0.02]"
+                        isDragging ? "bg-[#FC7133]/10 border-2 border-dashed border-[#FC7133]" : "hover:bg-white/[0.02]"
                       }`}
                     >
                       <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="application/pdf" className="hidden" />
-                      <div className="w-20 h-20 rounded-full bg-gradient-to-b from-indigo-500/20 to-transparent flex items-center justify-center mb-6">
-                        <Upload className="w-8 h-8 text-indigo-400" />
+                      <div className="w-20 h-20 rounded-full bg-gradient-to-b from-[#FC7133]/20 to-transparent flex items-center justify-center mb-6 border border-[#FC7133]/20">
+                        <Upload className="w-8 h-8 text-[#FC7133]" />
                       </div>
                       <h3 className="text-lg font-bold text-white mb-2">Upload Student Profile</h3>
                       <p className="text-sm text-slate-500 text-center max-w-xs">Drag & drop a PDF resume, transcript, or profile here, or click to browse.</p>
@@ -906,20 +957,20 @@ export default function Home() {
             
             {/* AI Parameters Setup */}
             <div className="bg-[#111113]/80 backdrop-blur-xl border border-white/5 rounded-3xl p-6 shadow-2xl shrink-0">
-              <label className="flex items-center gap-2 text-xs font-bold text-indigo-400 uppercase tracking-widest mb-5">
-                <Sparkles className="w-4 h-4" /> Targeting Parameters
+              <label className="flex items-center gap-2 text-xs font-bold text-[#FC7133] uppercase tracking-widest mb-5">
+                <Sparkles className="w-4 h-4 text-[#F9D440]" /> Targeting Parameters
               </label>
               
               <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-5">
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Target Country</label>
-                  <select value={destinationCountry} onChange={(e) => setDestinationCountry(e.target.value)} className="w-full px-4 py-3 bg-black/40 border border-white/5 rounded-xl text-sm text-slate-200 outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/50 appearance-none cursor-pointer transition-all">
-                    {["USA", "Canada", "United Kingdom", "Australia", "New Zealand", "Germany", "Spain", "France", "Ireland", "Poland", "EU/Other", "UAE/Middle East", "Singapore/APJ", "Malaysia", "Other", "Italy", "Nagaland", "Not Decided"].map(c => <option key={c} className="bg-[#1C1C1E]">{c}</option>)}
+                  <select value={destinationCountry} onChange={(e) => setDestinationCountry(e.target.value)} className="w-full px-4 py-3 bg-black/40 border border-white/5 rounded-xl text-sm text-slate-200 outline-none focus:border-[#FC7133]/50 focus:ring-1 focus:ring-[#FC7133]/30 appearance-none cursor-pointer transition-all">
+                    {["USA", "Canada", "United Kingdom", "Australia", "New Zealand", "Germany", "Spain", "France", "Ireland", "EU/Other", "UAE/Middle East", "Singapore/APJ", "Malaysia", "Other", "Italy", "Not Decided"].map(c => <option key={c} className="bg-[#1C1C1E]">{c}</option>)}
                   </select>
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Target Intake</label>
-                  <select value={intake} onChange={(e) => setIntake(e.target.value)} className="w-full px-4 py-3 bg-black/40 border border-white/5 rounded-xl text-sm text-slate-200 outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/50 appearance-none cursor-pointer transition-all">
+                  <select value={intake} onChange={(e) => setIntake(e.target.value)} className="w-full px-4 py-3 bg-black/40 border border-white/5 rounded-xl text-sm text-slate-200 outline-none focus:border-[#FC7133]/50 focus:ring-1 focus:ring-[#FC7133]/30 appearance-none cursor-pointer transition-all">
                     {intakeOptions.map(option => (
                       <option key={option} value={option} className="bg-[#1C1C1E]">{option}</option>
                     ))}
@@ -927,22 +978,22 @@ export default function Home() {
                 </div>
                 <div className="space-y-1.5 col-span-2 lg:col-span-1">
                   <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Budget Constraints</label>
-                  <input type="text" value={additionalContext} onChange={(e) => setAdditionalContext(e.target.value)} placeholder="e.g. 50 Lakhs or $60,000" className="w-full px-4 py-3 bg-black/40 border border-white/5 rounded-xl text-sm text-slate-200 outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/50 placeholder:text-slate-600 transition-all" />
+                  <input type="text" value={additionalContext} onChange={(e) => setAdditionalContext(e.target.value)} placeholder="e.g. 50 Lakhs or $60,000" className="w-full px-4 py-3 bg-black/40 border border-white/5 rounded-xl text-sm text-slate-200 outline-none focus:border-[#FC7133]/50 focus:ring-1 focus:ring-[#FC7133]/30 placeholder:text-slate-600 transition-all" />
                 </div>
               </div>
 
               <div className="flex items-center gap-2 py-2">
-                <input type="checkbox" id="appendMode" checked={appendMode} onChange={(e) => setAppendMode(e.target.checked)} className="w-4 h-4 rounded border-white/10 bg-black/40 text-indigo-500 focus:ring-indigo-500/50" />
-                <label htmlFor="appendMode" className="text-xs text-slate-400 font-medium">Append new results to current list (Side-by-side comparison)</label>
+                <input type="checkbox" id="appendMode" checked={appendMode} onChange={(e) => setAppendMode(e.target.checked)} className="w-4 h-4 rounded border-white/10 bg-black/40 text-[#FC7133] accent-[#FC7133] focus:ring-[#FC7133]/50 cursor-pointer" />
+                <label htmlFor="appendMode" className="text-xs text-slate-400 font-medium cursor-pointer">Append new results to current list (Side-by-side comparison)</label>
               </div>
 
               <button 
                 onClick={handleAnalyze} 
                 disabled={loading}
-                className="w-full relative group overflow-hidden rounded-xl bg-gradient-to-r from-indigo-600 to-fuchsia-600 p-px font-bold text-white shadow-lg shadow-indigo-500/25 transition-all hover:shadow-indigo-500/40 active:scale-[0.98]"
+                className="w-full relative group overflow-hidden rounded-xl bg-gradient-to-r from-[#FC7133] via-[#F9D440] to-[#FC7133] p-px font-bold text-white shadow-lg shadow-[#FC7133]/25 transition-all hover:shadow-[#FC7133]/40 active:scale-[0.98] cursor-pointer"
               >
                 <div className="absolute inset-0 bg-[linear-gradient(90deg,transparent,rgba(255,255,255,0.3),transparent)] bg-[length:200%_100%] animate-shine opacity-0 group-hover:opacity-100 transition-opacity z-10 rounded-xl" />
-                <div className="relative flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-indigo-500 to-fuchsia-500 px-6 py-4 transition-all group-hover:from-indigo-400 group-hover:to-fuchsia-400 z-0">
+                <div className="relative flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#FC7133] to-[#e65d20] px-6 py-4 transition-all group-hover:brightness-110 z-0">
                   {loading ? (
                     <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                   ) : (
@@ -966,8 +1017,8 @@ export default function Home() {
             {/* Header */}
             <div className="px-8 py-6 border-b border-white/5 bg-black/20 flex justify-between items-center z-10">
               <h3 className="text-lg font-black text-white flex items-center gap-3">
-                <div className="w-8 h-8 rounded-full bg-indigo-500/20 flex items-center justify-center border border-indigo-500/30">
-                  <BarChart className="w-4 h-4 text-indigo-400" />
+                <div className="w-8 h-8 rounded-full bg-[#FC7133]/15 flex items-center justify-center border border-[#FC7133]/30">
+                  <BarChart className="w-4 h-4 text-[#FC7133]" />
                 </div>
                 Intelligence Report
               </h3>
@@ -976,7 +1027,7 @@ export default function Home() {
 
                   <button 
                     onClick={() => { setCompareMode(!compareMode); setCompareResult(null); }}
-                    className="px-3 py-1 bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/30 rounded-full text-[10px] font-bold uppercase tracking-wider transition-colors"
+                    className="px-3 py-1 bg-[#FC7133]/15 hover:bg-[#FC7133]/25 text-[#FC7133] border border-[#FC7133]/30 rounded-full text-[10px] font-bold uppercase tracking-wider transition-colors"
                   >
                     {compareMode ? "Close Compare" : "Side-by-Side Analysis"}
                   </button>
@@ -998,18 +1049,18 @@ export default function Home() {
             <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
 
               {compareMode && compareResults.length === 0 && (
-                <div className="w-full p-6 border border-indigo-500/30 rounded-2xl bg-indigo-500/5 mb-8 animate-in fade-in duration-300">
-                  <h4 className="text-sm font-bold text-indigo-300 uppercase tracking-widest mb-4 flex items-center gap-2">
+                <div className="w-full p-6 border border-[#FC7133]/30 rounded-2xl bg-[#FC7133]/5 mb-8 animate-in fade-in duration-300">
+                  <h4 className="text-sm font-bold text-[#FC7133] uppercase tracking-widest mb-4 flex items-center gap-2">
                     <span>🌍</span> Select Countries to Compare (up to 15)
                   </h4>
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 mb-6">
-                    {["USA", "Canada", "United Kingdom", "Australia", "New Zealand", "Germany", "Spain", "France", "Ireland", "Poland", "UAE/Middle East", "Singapore/APJ", "Malaysia", "Italy", "Japan"].map(c => {
+                    {["USA", "Canada", "United Kingdom", "Australia", "New Zealand", "Germany", "Spain", "France", "Ireland", "UAE/Middle East", "Singapore/APJ", "Malaysia", "Italy", "Japan"].map(c => {
                       const checked = compareCountries.includes(c);
                       return (
-                        <label key={c} className={`flex items-center gap-2 p-2.5 rounded-xl border cursor-pointer transition-all select-none text-xs font-medium ${checked ? 'bg-indigo-500/20 border-indigo-500/50 text-indigo-300' : 'bg-black/30 border-white/5 text-slate-400 hover:border-indigo-500/30'}`}>
+                        <label key={c} className={`flex items-center gap-2 p-2.5 rounded-xl border cursor-pointer transition-all select-none text-xs font-medium ${checked ? 'bg-[#FC7133]/20 border-[#FC7133]/50 text-[#FC7133]' : 'bg-black/30 border-white/5 text-slate-400 hover:border-[#FC7133]/30'}`}>
                           <input
                             type="checkbox"
-                            className="accent-indigo-500 w-3.5 h-3.5"
+                            className="accent-[#FC7133] w-3.5 h-3.5"
                             checked={checked}
                             onChange={() => {
                               if (checked) {
@@ -1029,7 +1080,7 @@ export default function Home() {
                     <button
                       onClick={handleCompareAnalyze}
                       disabled={compareLoading || compareCountries.length === 0}
-                      className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold rounded-xl transition-all shadow-lg shadow-indigo-500/20 text-sm whitespace-nowrap"
+                      className="px-6 py-2.5 bg-gradient-to-r from-[#FC7133] to-[#e65d20] hover:brightness-110 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold rounded-xl transition-all shadow-lg shadow-[#FC7133]/20 text-sm whitespace-nowrap"
                     >
                       {compareLoading ? `Running... ${compareProgress}%` : `Run Comparison (${compareCountries.length})`}
                     </button>
@@ -1037,7 +1088,7 @@ export default function Home() {
                   {compareLoading && (
                     <div className="mt-4">
                       <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
-                        <div className="h-full bg-indigo-500 transition-all duration-500 rounded-full" style={{ width: `${compareProgress}%` }} />
+                        <div className="h-full bg-[#FC7133] transition-all duration-500 rounded-full" style={{ width: `${compareProgress}%` }} />
                       </div>
                       <p className="text-[10px] text-slate-500 mt-1">{compareProgress}% — fetching university data for each country...</p>
                     </div>
@@ -1053,17 +1104,25 @@ export default function Home() {
               )}
 
               {!result && !error && !loading && (
-                <div className="h-full flex flex-col items-center justify-center text-slate-500 opacity-50">
-                  <BrainCircuit className="w-16 h-16 mb-4 stroke-[1.5]" />
-                  <p className="text-lg font-medium">Awaiting Profile Data</p>
-                  <p className="text-sm">Upload a PDF and run analysis to view insights.</p>
+                <div className="h-full flex flex-col items-center justify-center text-slate-500 py-12">
+                  <div className="w-20 h-20 rounded-3xl bg-gradient-to-br from-[#FC7133]/20 via-[#F9D440]/10 to-[#7DC1B1]/20 p-px mb-5 shadow-xl shadow-[#FC7133]/10">
+                    <div className="w-full h-full bg-[#111113] rounded-3xl flex items-center justify-center p-4">
+                      <img 
+                        src={theme === 'light' ? "/logo-light.png" : "/logo-dark.png"} 
+                        alt="Learn Overseas" 
+                        className={`w-10 h-10 object-contain opacity-80 ${theme === 'light' ? 'invert' : ''}`}
+                      />
+                    </div>
+                  </div>
+                  <p className="text-lg font-bold text-slate-300">Awaiting Profile Data</p>
+                  <p className="text-sm text-slate-500 mt-1">Upload a PDF and run analysis to view insights.</p>
                 </div>
               )}
 
               {loading && (
-                <div className="h-full flex flex-col items-center justify-center text-indigo-400">
-                  <div className="w-12 h-12 border-4 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin mb-6" />
-                  <p className="text-lg font-bold animate-pulse">Running Neural Heuristics...</p>
+                <div className="h-full flex flex-col items-center justify-center text-[#FC7133]">
+                  <div className="w-12 h-12 border-4 border-[#FC7133]/20 border-t-[#FC7133] rounded-full animate-spin mb-6" />
+                  <p className="text-lg font-bold animate-pulse text-[#FC7133]">Running Neural Heuristics...</p>
                   <p className="text-sm text-slate-500 mt-2">Processing profile against global database.</p>
                 </div>
               )}
@@ -1081,7 +1140,7 @@ export default function Home() {
                     <button
                       key={ci}
                       onClick={() => setActiveCompareTab(ci)}
-                      className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${activeCompareTab === ci ? 'bg-indigo-500/30 text-indigo-300 border border-indigo-500/40' : 'text-slate-500 hover:text-slate-300'}`}
+                      className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${activeCompareTab === ci ? 'bg-[#FC7133]/25 text-[#FC7133] border border-[#FC7133]/40' : 'text-slate-500 hover:text-slate-300'}`}
                     >
                       🌍 {compareCountries[ci]}
                       <span className="px-1.5 py-0.5 bg-white/10 rounded-md text-[9px]">{cr.recommendedColleges?.length ?? 0}</span>
@@ -1100,16 +1159,44 @@ export default function Home() {
                 {[activeCompareTab === -1 ? result : (compareResults.length > 0 ? (compareResults[activeCompareTab] ?? result) : result)].filter(Boolean).map((res: any, viewIdx: number) => (
                 <div key={viewIdx} ref={viewIdx === 0 ? reportRef : undefined} className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 p-4 -m-4 bg-[#111113] rounded-2xl">
                   
+                  {/* Official Learn Overseas Report Header on screen */}
+                  <div className="flex items-center justify-between pb-6 mb-6 border-b border-white/10">
+                    <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[#FC7133] via-[#F9D440] to-[#7DC1B1] p-px shadow-lg shadow-[#FC7133]/20 shrink-0">
+                        <div className="w-full h-full bg-[#111113] rounded-2xl flex items-center justify-center p-2">
+                          <img 
+                            src={theme === 'light' ? "/logo-light.png" : "/logo-dark.png"} 
+                            alt="Learn Overseas Logo" 
+                            className={`w-7 h-7 object-contain ${theme === 'light' ? 'invert' : ''}`}
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h2 className="text-xl font-black text-white">LEARN OVERSEAS</h2>
+                          <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-[#FC7133]/20 text-[#FC7133] border border-[#FC7133]/30">
+                            Official Report
+                          </span>
+                        </div>
+                        <p className="text-xs font-semibold text-slate-400">AI Admissions & Course Intelligence</p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Date</p>
+                      <p className="text-xs font-bold text-slate-300">{new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}</p>
+                    </div>
+                  </div>
+
                   {/* Student Profile Header */}
                   <div className="flex items-center gap-4 mb-6 pb-6 border-b border-white/5">
-                    <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-indigo-500 to-fuchsia-500 p-px shadow-lg shadow-indigo-500/20">
+                    <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#FC7133] via-[#F9D440] to-[#7DC1B1] p-px shadow-lg shadow-[#FC7133]/20">
                       <div className="w-full h-full bg-[#111113] rounded-2xl flex items-center justify-center text-xl font-black text-white">
                         {res.studentDetails?.name ? res.studentDetails.name.charAt(0) : "U"}
                       </div>
                     </div>
                     <div>
                       <h2 className="text-2xl font-black text-white">{res.studentDetails?.name || "Unknown Student"}</h2>
-                      <p className="text-sm font-bold text-indigo-400">{res.studentDetails?.primaryDomain} Applicant</p>
+                      <p className="text-sm font-bold text-[#FC7133]">{res.studentDetails?.primaryDomain} Applicant</p>
                     </div>
                   </div>
 
@@ -1121,45 +1208,45 @@ export default function Home() {
                     </div>
                     <div className="bg-black/40 border border-white/5 p-4 rounded-2xl flex flex-col justify-center">
                       <h5 className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Degree Obj</h5>
-                      <p className="text-xs font-bold text-indigo-300 leading-snug">{res.studentDetails?.degreeObjective}</p>
+                      <p className="text-xs font-bold text-slate-200 leading-snug">{res.studentDetails?.degreeObjective}</p>
                     </div>
                     <div className="bg-black/40 border border-white/5 p-4 rounded-2xl flex flex-col justify-center">
                       <h5 className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Country</h5>
-                      <p className="text-xs font-bold text-indigo-300 leading-snug">{res.studentDetails?.destinationCountry}</p>
+                      <p className="text-xs font-bold text-slate-200 leading-snug">{res.studentDetails?.destinationCountry}</p>
                     </div>
                     <div className="bg-black/40 border border-white/5 p-4 rounded-2xl flex flex-col justify-center">
                       <h5 className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Target Intake</h5>
-                      <p className="text-xs font-bold text-indigo-300 leading-snug">{res.studentDetails?.targetIntake}</p>
+                      <p className="text-xs font-bold text-slate-200 leading-snug">{res.studentDetails?.targetIntake}</p>
                     </div>
                     <div className="bg-black/40 border border-white/5 p-4 rounded-2xl flex flex-col justify-center">
                       <h5 className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Domain</h5>
-                      <p className="text-xs font-bold text-indigo-300 leading-snug">{res.studentDetails?.primaryDomain}</p>
+                      <p className="text-xs font-bold text-slate-200 leading-snug">{res.studentDetails?.primaryDomain}</p>
                     </div>
                     
                     <div className="bg-black/40 border border-white/5 p-4 rounded-2xl flex flex-col justify-center">
                       <h5 className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Work Exp</h5>
-                      <p className="text-xs font-bold text-indigo-300 leading-snug">{res.studentDetails?.workExperience || "None"}</p>
+                      <p className="text-xs font-bold text-slate-200 leading-snug">{res.studentDetails?.workExperience || "None"}</p>
                     </div>
                     <div className="bg-black/40 border border-white/5 p-4 rounded-2xl flex flex-col justify-center">
                       <h5 className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Backlogs</h5>
-                      <p className="text-xs font-bold text-indigo-300 leading-snug">{res.studentDetails?.backlogs || "0"}</p>
+                      <p className="text-xs font-bold text-slate-200 leading-snug">{res.studentDetails?.backlogs || "0"}</p>
                     </div>
                     <div className="bg-black/40 border border-white/5 p-4 rounded-2xl flex flex-col justify-center">
                       <h5 className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Visa Status</h5>
-                      <p className="text-xs font-bold text-indigo-300 leading-snug">{res.studentDetails?.visaStatus || "Not Specified"}</p>
+                      <p className="text-xs font-bold text-slate-200 leading-snug">{res.studentDetails?.visaStatus || "Not Specified"}</p>
                     </div>
                     <div className="bg-black/40 border border-white/5 p-4 rounded-2xl flex flex-col justify-center lg:col-span-2">
                       <h5 className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Test Scores</h5>
-                      <p className="text-xs font-bold text-indigo-300 leading-snug">{res.studentDetails?.testScores}</p>
+                      <p className="text-xs font-bold text-slate-200 leading-snug">{res.studentDetails?.testScores}</p>
                     </div>
                   </div>
 
                   {/* Summary & Budget Section */}
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <div className="md:col-span-2 bg-gradient-to-br from-indigo-900/20 to-black border border-indigo-500/20 rounded-3xl p-6 shadow-inner relative overflow-hidden">
-                      <div className="absolute -top-10 -right-10 w-32 h-32 bg-indigo-500/10 blur-3xl rounded-full pointer-events-none" />
-                      <h4 className="text-xs font-bold text-indigo-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                        <Sparkles className="w-4 h-4" /> Executive Summary
+                    <div className="md:col-span-2 bg-gradient-to-br from-[#FC7133]/15 to-black border border-[#FC7133]/25 rounded-3xl p-6 shadow-inner relative overflow-hidden">
+                      <div className="absolute -top-10 -right-10 w-32 h-32 bg-[#FC7133]/10 blur-3xl rounded-full pointer-events-none" />
+                      <h4 className="text-xs font-bold text-[#FC7133] uppercase tracking-widest mb-4 flex items-center gap-2">
+                        <Sparkles className="w-4 h-4 text-[#F9D440]" /> Executive Summary
                       </h4>
                       <p className="text-sm text-slate-300 leading-relaxed font-medium whitespace-pre-wrap">
                         {res.studentSummary}
@@ -1181,7 +1268,7 @@ export default function Home() {
                   {/* Recommendations Section */}
                   <div>
                     <h4 className="text-sm font-black text-white mb-4 flex items-center gap-2">
-                      <MapPin className="w-4 h-4 text-indigo-400" /> Recommended Institutions
+                      <MapPin className="w-4 h-4 text-[#FC7133]" /> Recommended Institutions
                       <span className="ml-2 px-2.5 py-0.5 bg-white/10 text-slate-300 rounded-full text-[10px] font-bold">
                         {res.recommendedColleges.length} Matches
                       </span>
@@ -1235,10 +1322,22 @@ export default function Home() {
                                 >
                                   <td className="p-4">
                                     <div className="flex items-center gap-2">
-                                      <span className="font-bold text-white group-hover:text-indigo-400 transition-colors">{uni.name}</span>
-                                      {uni.isLiveScraped && <span className="text-[9px] bg-indigo-500/20 text-indigo-300 px-1.5 py-0.5 rounded border border-indigo-500/20 font-black">LIVE</span>}
+                                      <span className="font-bold text-white group-hover:text-[#FC7133] transition-colors">{uni.name}</span>
+                                      {uni.isLiveScraped && <span className="text-[9px] bg-[#FC7133]/20 text-[#FC7133] px-1.5 py-0.5 rounded border border-[#FC7133]/30 font-black">LIVE</span>}
                                     </div>
-                                    <div className="text-[10px] text-slate-400 mt-1 flex items-center gap-1"><MapPin className="w-3 h-3" /> {uni.location}</div>
+                                    <div className="text-[10px] text-slate-400 mt-1 flex items-center gap-1"><MapPin className="w-3 h-3 text-[#FC7133]" /> {uni.location}</div>
+                                    {uni.courseLink && (
+                                      <a
+                                        href={uni.courseLink}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        onClick={(e) => e.stopPropagation()}
+                                        className="inline-flex items-center gap-1 text-[11px] font-bold text-[#FC7133] hover:text-[#ff8f58] hover:underline mt-1.5 transition-colors"
+                                        title="View official course details"
+                                      >
+                                        <ExternalLink className="w-3 h-3" /> View Course ↗
+                                      </a>
+                                    )}
                                   </td>
                                   <td className="p-4 text-center">
                                     <span className={`font-black text-sm ${uni.matchPercentage > 85 ? 'text-emerald-400' : uni.matchPercentage > 75 ? 'text-amber-400' : 'text-rose-400'}`}>{uni.matchPercentage}%</span>
@@ -1258,7 +1357,7 @@ export default function Home() {
                                   </td>
                                   <td className="p-4 text-xs text-rose-300 font-bold">{uni.applicationDeadline}</td>
                                   <td className="p-4 text-sm font-bold text-slate-300">{uni.acceptanceRate}</td>
-                                  <td className="p-4 text-sm font-black text-indigo-300 text-center">{uni.minCgpa.toFixed(1)}</td>
+                                  <td className="p-4 text-sm font-black text-[#F9D440] text-center">{uni.minCgpa.toFixed(1)}</td>
                                 </tr>
                                 
                                 {/* Expanded Details Row */}
@@ -1268,12 +1367,25 @@ export default function Home() {
                                       <div className="grid grid-cols-1 md:grid-cols-2 gap-8 animate-in fade-in slide-in-from-top-2 duration-300">
                                         <div>
                                           <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Recommended Course</p>
-                                          <p className="text-sm font-black text-fuchsia-300 mb-5">{uni.recommendedCourse}</p>
+                                          <div className="flex flex-wrap items-center gap-3 mb-5">
+                                            <p className="text-sm font-black text-[#FC7133]">{uni.recommendedCourse}</p>
+                                            {uni.courseLink && (
+                                              <a
+                                                href={uni.courseLink}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                onClick={(e) => e.stopPropagation()}
+                                                className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-bold text-white bg-gradient-to-r from-[#FC7133] to-[#F9D440] hover:brightness-110 rounded-lg shadow-sm transition-all"
+                                              >
+                                                <ExternalLink className="w-3.5 h-3.5" /> View Official Course ↗
+                                              </a>
+                                            )}
+                                          </div>
                                           <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">AI Rationale</p>
-                                          <p className="text-xs text-slate-300 italic leading-relaxed border-l-2 border-indigo-500/50 pl-3">"{uni.rationale}"</p>
+                                          <p className="text-xs text-slate-300 italic leading-relaxed border-l-2 border-[#FC7133]/50 pl-3">"{uni.rationale}"</p>
                                         </div>
-                                        <div className="bg-indigo-500/5 rounded-xl p-4 border border-indigo-500/10">
-                                          <p className="text-[10px] font-bold text-indigo-400/70 uppercase tracking-widest mb-2">Program Details</p>
+                                        <div className="bg-[#FC7133]/5 rounded-xl p-4 border border-[#FC7133]/15">
+                                          <p className="text-[10px] font-bold text-[#FC7133] uppercase tracking-widest mb-2">Program Details</p>
                                           <p className="text-xs text-slate-300 leading-relaxed mb-4">{uni.courseDetails}</p>
                                           <div className="flex flex-wrap gap-2">
                                             {uni.notablePrograms?.map((prog: string, pIdx: number) => (
@@ -1322,7 +1434,7 @@ export default function Home() {
                       </ul>
                     </div>
                     <div className="bg-black/20 rounded-2xl p-5 border border-white/5">
-                      <h4 className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                      <h4 className="text-[10px] font-bold text-[#FC7133] uppercase tracking-widest mb-4 flex items-center gap-2">
                         <Briefcase className="w-3.5 h-3.5" /> Career Horizons
                       </h4>
                       <div className="flex flex-wrap gap-2">
@@ -1335,6 +1447,11 @@ export default function Home() {
                     </div>
                   </div>
 
+                  {/* Official Learn Overseas Report Footer on screen */}
+                  <div className="pt-6 border-t border-white/5 flex flex-col sm:flex-row justify-between items-center text-[10px] text-slate-500 gap-2">
+                    <p>© {new Date().getFullYear()} Learn Overseas • AI Admissions & Course Intelligence System</p>
+                    <p className="text-slate-400 font-medium">Confidential Student Profile Evaluation</p>
+                  </div>
 
                 </div>
               ))}
@@ -1357,7 +1474,7 @@ export default function Home() {
               {[
                 { title: "Total Students Analyzed", value: totalStudents.toLocaleString(), trend: "Live", icon: Users, color: "text-blue-400", bg: "bg-blue-500/10" },
                 { title: "Avg. Match Success", value: avgMatch, trend: "Overall", icon: Target, color: "text-emerald-400", bg: "bg-emerald-500/10" },
-                { title: "Top Target Country", value: topCountry, trend: "Highest Demand", icon: Globe, color: "text-indigo-400", bg: "bg-indigo-500/10" },
+                { title: "Top Target Country", value: topCountry, trend: "Highest Demand", icon: Globe, color: "text-[#FC7133]", bg: "bg-[#FC7133]/10" },
                 { title: "System Uptime", value: "99.99%", trend: "Stable", icon: Database, color: "text-fuchsia-400", bg: "bg-fuchsia-500/10" },
               ].map((stat, i) => (
                 <div key={i} className="bg-[#111113]/80 backdrop-blur-xl border border-white/5 rounded-3xl p-6 shadow-xl flex flex-col relative overflow-hidden group">
@@ -1392,14 +1509,14 @@ export default function Home() {
                         <Tooltip cursor={{ fill: '#ffffff0a' }} contentStyle={{ backgroundColor: '#111113', borderColor: '#ffffff1a', borderRadius: '12px' }} />
                         <Bar dataKey="count" radius={[4, 4, 0, 0]}>
                           {Object.entries(countryCounts).slice(0, 5).map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={index === 0 ? '#6366f1' : '#475569'} />
+                            <Cell key={`cell-${index}`} fill={index === 0 ? '#FC7133' : '#475569'} />
                           ))}
                         </Bar>
                       </RechartsBarChart>
                     </ResponsiveContainer>
                   ) : (
                     <div className="flex flex-col items-center justify-center opacity-50 border border-dashed border-white/10 rounded-2xl w-full h-full">
-                      <TrendingUp className="w-12 h-12 text-indigo-500/20 group-hover:scale-110 transition-transform duration-500 mb-2" />
+                      <TrendingUp className="w-12 h-12 text-[#FC7133]/20 group-hover:scale-110 transition-transform duration-500 mb-2" />
                       <span className="text-xs text-slate-500 uppercase tracking-widest font-bold">No Data Yet</span>
                     </div>
                   )}
@@ -1412,9 +1529,9 @@ export default function Home() {
                     <p className="text-sm text-slate-500">No activity yet. Analyze a student to see history.</p>
                   ) : history.slice(0, 4).map((student, i) => (
                     <div key={i} className="flex gap-4 items-center cursor-pointer group" onClick={() => handleViewStudent(student)}>
-                      <div className="w-2 h-2 rounded-full bg-indigo-500 shadow-[0_0_8px_rgba(99,102,241,0.8)] group-hover:scale-150 transition-transform" />
+                      <div className="w-2 h-2 rounded-full bg-[#FC7133] shadow-[0_0_8px_rgba(252,113,51,0.8)] group-hover:scale-150 transition-transform" />
                       <div>
-                        <p className="text-sm font-bold text-slate-200 group-hover:text-indigo-400 transition-colors">
+                        <p className="text-sm font-bold text-slate-200 group-hover:text-[#FC7133] transition-colors">
                           {student.studentDetails?.name && student.studentDetails.name !== "Unknown Student" ? student.studentDetails.name : `New ${student.studentDetails?.primaryDomain || "General"} Profile`}
                         </p>
                         <p className="text-xs text-slate-500">{student.studentDetails?.primaryDomain || "General"} • {student.studentDetails?.destinationCountry || "Global"}</p>
@@ -1442,7 +1559,7 @@ export default function Home() {
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     placeholder="Search students..." 
-                    className="pl-9 pr-4 py-2 bg-black/40 border border-white/5 rounded-lg text-sm text-slate-200 outline-none focus:border-indigo-500/50 w-48" 
+                    className="pl-9 pr-4 py-2 bg-black/40 border border-white/5 rounded-lg text-sm text-slate-200 outline-none focus:border-[#FC7133]/50 w-48" 
                   />
                 </div>
                 
@@ -1567,11 +1684,11 @@ export default function Home() {
                            <Users className="w-8 h-8 text-slate-600 mx-auto mb-3" />
                            <p className="text-sm font-medium text-slate-400">No students found matching your criteria.</p>
                            {searchQuery || filterDomain !== "All" ? (
-                             <button onClick={() => {setSearchQuery(''); setFilterDomain('All')}} className="mt-4 text-xs font-bold text-indigo-400 hover:text-indigo-300 transition-colors">Clear Filters &rarr;</button>
+                             <button onClick={() => {setSearchQuery(''); setFilterDomain('All')}} className="mt-4 text-xs font-bold text-[#FC7133] hover:text-[#FC7133]/80 transition-colors">Clear Filters &rarr;</button>
                            ) : (
-                             <button onClick={() => setActiveTab("analyzer")} className="mt-4 text-xs font-bold text-indigo-400 hover:text-indigo-300 transition-colors">Go to AI Analyzer &rarr;</button>
+                             <button onClick={() => setActiveTab("analyzer")} className="mt-4 text-xs font-bold text-[#FC7133] hover:text-[#FC7133]/80 transition-colors">Go to AI Analyzer &rarr;</button>
                            )}
-                        </td>
+                         </td>
                       </tr>
                     ) : sortedHistory.map((student, i) => {
                       const name = student.studentDetails?.name && student.studentDetails.name !== "Unknown Student" 
@@ -1589,7 +1706,7 @@ export default function Home() {
                         </td>
                         {currentUser?.role === 'super_admin' && (
                           <td className="p-5">
-                            <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                            <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-[#FC7133]/10 text-[#FC7133] border border-[#FC7133]/20">
                               {student.counselorName || 'Unknown'}
                             </span>
                           </td>
@@ -1620,7 +1737,7 @@ export default function Home() {
                         </td>
                         <td className="p-5">
                           <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <button onClick={() => handleViewStudent(student)} className="p-2 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/20 text-indigo-400 hover:text-indigo-300 rounded-lg transition-all shadow-inner" title="View Profile">
+                            <button onClick={() => handleViewStudent(student)} className="p-2 bg-[#FC7133]/10 hover:bg-[#FC7133]/20 border border-[#FC7133]/20 text-[#FC7133] hover:text-[#FC7133]/80 rounded-lg transition-all shadow-inner" title="View Profile">
                               <Eye className="w-4 h-4" />
                             </button>
                             <button onClick={() => handleViewStudent(student)} className="p-2 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 text-emerald-400 hover:text-emerald-300 rounded-lg transition-all shadow-inner" title="Edit Student">
@@ -1658,24 +1775,24 @@ export default function Home() {
                   <>
                     <button 
                       onClick={() => setSettingsTab("users")}
-                      className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${settingsTab === 'users' ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 shadow-inner' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}>
+                      className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${settingsTab === 'users' ? 'bg-[#FC7133]/15 text-[#FC7133] border border-[#FC7133]/30 shadow-inner' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}>
                       <Users className="w-4 h-4" /> User Management
                     </button>
                     <button 
                       onClick={() => setSettingsTab("security")}
-                      className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${settingsTab === 'security' ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 shadow-inner' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}>
+                      className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${settingsTab === 'security' ? 'bg-[#FC7133]/15 text-[#FC7133] border border-[#FC7133]/30 shadow-inner' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}>
                       <AlertCircle className="w-4 h-4" /> Security & Access
                     </button>
                     <button 
                       onClick={() => setSettingsTab("database")}
-                      className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${settingsTab === 'database' ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 shadow-inner' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}>
+                      className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${settingsTab === 'database' ? 'bg-[#FC7133]/15 text-[#FC7133] border border-[#FC7133]/30 shadow-inner' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}>
                       <Database className="w-4 h-4" /> Global Database
                     </button>
                   </>
                 )}
                 <button 
                   onClick={() => setSettingsTab("preferences")}
-                  className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${settingsTab === 'preferences' ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 shadow-inner' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}>
+                  className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${settingsTab === 'preferences' ? 'bg-[#FC7133]/15 text-[#FC7133] border border-[#FC7133]/30 shadow-inner' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}>
                   <Settings className="w-4 h-4" /> Preferences
                 </button>
               </div>
@@ -1709,7 +1826,7 @@ export default function Home() {
                                 <td className="p-4 text-sm font-medium text-slate-500">#{u.id}</td>
                                 <td className="p-4">
                                   <div className="flex items-center gap-3">
-                                    <div className="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-500/20 to-fuchsia-500/20 flex items-center justify-center border border-indigo-500/20 text-indigo-300 font-black text-xs">
+                                    <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#FC7133]/20 to-[#F9D440]/20 flex items-center justify-center border border-[#FC7133]/20 text-[#FC7133] font-black text-xs">
                                       {u.name.charAt(0)}
                                     </div>
                                     <div>
@@ -1726,7 +1843,7 @@ export default function Home() {
                                 <td className="p-4 text-right">
                                    {u.role !== 'super_admin' && (
                                      <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                       <button className="px-3 py-1.5 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/20 text-indigo-400 rounded-lg text-xs font-bold transition-all" onClick={() => handleResetPassword(u.id)}>Reset Pass</button>
+                                       <button className="px-3 py-1.5 bg-[#FC7133]/10 hover:bg-[#FC7133]/20 border border-[#FC7133]/20 text-[#FC7133] rounded-lg text-xs font-bold transition-all" onClick={() => handleResetPassword(u.id)}>Reset Pass</button>
                                        <button className="px-3 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 text-rose-400 rounded-lg text-xs font-bold transition-all" onClick={() => handleDeleteUser(u.id)}>Remove</button>
                                      </div>
                                    )}
@@ -1738,10 +1855,10 @@ export default function Home() {
                       </div>
                     </div>
                     
-                    <div className="p-6 bg-gradient-to-br from-indigo-500/5 to-fuchsia-500/5 border border-indigo-500/10 rounded-3xl relative overflow-hidden">
-                       <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 pointer-events-none" />
-                       <h3 className="text-sm font-bold text-indigo-300 mb-6 flex items-center gap-2">
-                         <div className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse" />
+                    <div className="p-6 bg-gradient-to-br from-[#FC7133]/5 to-[#F9D440]/5 border border-[#FC7133]/15 rounded-3xl relative overflow-hidden">
+                       <div className="absolute top-0 right-0 w-64 h-64 bg-[#FC7133]/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 pointer-events-none" />
+                       <h3 className="text-sm font-bold text-[#FC7133] mb-6 flex items-center gap-2">
+                         <div className="w-2 h-2 rounded-full bg-[#FC7133] animate-pulse" />
                          Add New Counselor
                        </h3>
                        <div className="flex flex-col lg:flex-row gap-4 relative z-10">
@@ -1751,7 +1868,7 @@ export default function Home() {
                              id="newUserName"
                              type="text" 
                              placeholder="e.g. John Doe" 
-                             className="w-full px-4 py-3 bg-black/40 border border-white/10 rounded-xl text-sm text-slate-200 outline-none focus:border-indigo-500/50 focus:bg-black/60 transition-all shadow-inner"
+                             className="w-full px-4 py-3 bg-black/40 border border-white/10 rounded-xl text-sm text-slate-200 outline-none focus:border-[#FC7133]/50 focus:bg-black/60 transition-all shadow-inner"
                            />
                          </div>
                          <div className="flex-1 space-y-1.5">
@@ -1760,7 +1877,7 @@ export default function Home() {
                              id="newUserUsername"
                              type="text" 
                              placeholder="e.g. johndoe" 
-                             className="w-full px-4 py-3 bg-black/40 border border-white/10 rounded-xl text-sm text-slate-200 outline-none focus:border-indigo-500/50 focus:bg-black/60 transition-all shadow-inner"
+                             className="w-full px-4 py-3 bg-black/40 border border-white/10 rounded-xl text-sm text-slate-200 outline-none focus:border-[#FC7133]/50 focus:bg-black/60 transition-all shadow-inner"
                            />
                          </div>
                          <div className="flex-1 space-y-1.5">
@@ -1769,7 +1886,7 @@ export default function Home() {
                              id="newUserPass"
                              type="password" 
                              placeholder="••••••••" 
-                             className="w-full px-4 py-3 bg-black/40 border border-white/10 rounded-xl text-sm text-slate-200 outline-none focus:border-indigo-500/50 focus:bg-black/60 transition-all shadow-inner"
+                             className="w-full px-4 py-3 bg-black/40 border border-white/10 rounded-xl text-sm text-slate-200 outline-none focus:border-[#FC7133]/50 focus:bg-black/60 transition-all shadow-inner"
                            />
                          </div>
                          <div className="flex items-end pb-0.5">
@@ -1788,7 +1905,7 @@ export default function Home() {
                                   alert("All fields are required to add a user.");
                                 }
                              }}
-                             className="px-8 py-3 bg-indigo-500 hover:bg-indigo-600 text-white font-bold rounded-xl text-sm transition-colors shadow-lg shadow-indigo-500/25 whitespace-nowrap h-[46px]"
+                             className="px-8 py-3 bg-[#FC7133] hover:bg-[#e65d20] text-white font-bold rounded-xl text-sm transition-colors shadow-lg shadow-[#FC7133]/25 whitespace-nowrap h-[46px]"
                            >
                              Add User
                            </button>
@@ -1807,35 +1924,35 @@ export default function Home() {
 
                     <div className="space-y-4 max-w-4xl">
                       {/* MFA Card */}
-                      <div className="bg-[#18181B] border border-white/10 rounded-2xl p-6 flex flex-col md:flex-row md:items-center justify-between gap-6 hover:border-indigo-500/30 transition-colors shadow-lg">
+                      <div className="bg-[#18181B] border border-white/10 rounded-2xl p-6 flex flex-col md:flex-row md:items-center justify-between gap-6 hover:border-[#FC7133]/30 transition-colors shadow-lg">
                         <div className="flex-1">
                           <h3 className="text-base font-bold text-slate-100 mb-1">Multi-Factor Authentication (MFA)</h3>
                           <p className="text-sm text-slate-400">Require all counselors to provide a secondary time-based one-time password (TOTP) when logging in.</p>
                         </div>
                         <button 
                           onClick={() => setMfaEnabled(!mfaEnabled)}
-                          className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors shrink-0 ${mfaEnabled ? 'bg-indigo-500' : 'bg-slate-700'}`}
+                          className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors shrink-0 ${mfaEnabled ? 'bg-[#FC7133]' : 'bg-slate-700'}`}
                         >
                           <span className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${mfaEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
                         </button>
                       </div>
 
                       {/* Enforce Strong Pass Card */}
-                      <div className="bg-[#18181B] border border-white/10 rounded-2xl p-6 flex flex-col md:flex-row md:items-center justify-between gap-6 hover:border-indigo-500/30 transition-colors shadow-lg">
+                      <div className="bg-[#18181B] border border-white/10 rounded-2xl p-6 flex flex-col md:flex-row md:items-center justify-between gap-6 hover:border-[#FC7133]/30 transition-colors shadow-lg">
                         <div className="flex-1">
                           <h3 className="text-base font-bold text-slate-100 mb-1">Enforce Strong Passwords</h3>
                           <p className="text-sm text-slate-400">Passwords must be at least 12 characters and include numbers, symbols, and mixed case letters.</p>
                         </div>
                         <button 
                           onClick={() => setEnforceStrongPass(!enforceStrongPass)}
-                          className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors shrink-0 ${enforceStrongPass ? 'bg-indigo-500' : 'bg-slate-700'}`}
+                          className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors shrink-0 ${enforceStrongPass ? 'bg-[#FC7133]' : 'bg-slate-700'}`}
                         >
                           <span className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${enforceStrongPass ? 'translate-x-6' : 'translate-x-1'}`} />
                         </button>
                       </div>
 
                       {/* Session Timeout */}
-                      <div className="bg-[#18181B] border border-white/10 rounded-2xl p-6 flex flex-col md:flex-row md:items-center justify-between gap-6 hover:border-indigo-500/30 transition-colors shadow-lg">
+                      <div className="bg-[#18181B] border border-white/10 rounded-2xl p-6 flex flex-col md:flex-row md:items-center justify-between gap-6 hover:border-[#FC7133]/30 transition-colors shadow-lg">
                         <div className="flex-1">
                           <h3 className="text-base font-bold text-slate-100 mb-1">Session Timeout</h3>
                           <p className="text-sm text-slate-400">Automatically log users out after a period of inactivity to prevent unauthorized access.</p>
@@ -1844,7 +1961,7 @@ export default function Home() {
                           <select 
                             value={sessionTimeout}
                             onChange={(e) => setSessionTimeout(e.target.value)}
-                            className="w-full appearance-none bg-[#0A0A0B] border border-white/10 rounded-xl px-4 py-3 text-sm text-slate-200 outline-none focus:border-indigo-500/50 shadow-inner"
+                            className="w-full appearance-none bg-[#0A0A0B] border border-white/10 rounded-xl px-4 py-3 text-sm text-slate-200 outline-none focus:border-[#FC7133]/50 shadow-inner"
                           >
                             <option value="15">15 Minutes</option>
                             <option value="30">30 Minutes</option>
@@ -1859,7 +1976,7 @@ export default function Home() {
                       </div>
 
                       {/* Max Failed Attempts */}
-                      <div className="bg-[#18181B] border border-white/10 rounded-2xl p-6 flex flex-col md:flex-row md:items-center justify-between gap-6 hover:border-indigo-500/30 transition-colors shadow-lg">
+                      <div className="bg-[#18181B] border border-white/10 rounded-2xl p-6 flex flex-col md:flex-row md:items-center justify-between gap-6 hover:border-[#FC7133]/30 transition-colors shadow-lg">
                         <div className="flex-1">
                           <h3 className="text-base font-bold text-slate-100 mb-1">Max Failed Login Attempts</h3>
                           <p className="text-sm text-slate-400">Lock out a counselor account temporarily after consecutive incorrect password attempts.</p>
@@ -1868,7 +1985,7 @@ export default function Home() {
                           <select 
                             value={maxFailedAttempts}
                             onChange={(e) => setMaxFailedAttempts(e.target.value)}
-                            className="w-full appearance-none bg-[#0A0A0B] border border-white/10 rounded-xl px-4 py-3 text-sm text-slate-200 outline-none focus:border-indigo-500/50 shadow-inner"
+                            className="w-full appearance-none bg-[#0A0A0B] border border-white/10 rounded-xl px-4 py-3 text-sm text-slate-200 outline-none focus:border-[#FC7133]/50 shadow-inner"
                           >
                             <option value="3">3 Attempts</option>
                             <option value="5">5 Attempts</option>
@@ -1885,7 +2002,7 @@ export default function Home() {
                     <div className="pt-2 max-w-4xl flex justify-end">
                       <button 
                         onClick={() => saveSettings({ mfaEnabled, sessionTimeout, enforceStrongPass, maxFailedAttempts })}
-                        className="px-6 py-2.5 bg-indigo-500 hover:bg-indigo-600 text-white font-bold rounded-xl text-sm transition-colors shadow-lg shadow-indigo-500/25"
+                        className="px-6 py-2.5 bg-[#FC7133] hover:bg-[#e65d20] text-white font-bold rounded-xl text-sm transition-colors shadow-lg shadow-[#FC7133]/25"
                       >
                         Save Security Settings
                       </button>
@@ -1938,8 +2055,8 @@ export default function Home() {
 
                       {/* Config or Password Reset */}
                       {currentUser?.role === 'super_admin' ? (
-                        <div className="bg-[#18181B] border border-white/10 rounded-2xl p-8 space-y-6 hover:border-indigo-500/30 transition-colors shadow-lg">
-                          <h3 className="text-lg font-black text-indigo-400 mb-2 flex items-center gap-3">
+                        <div className="bg-[#18181B] border border-white/10 rounded-2xl p-8 space-y-6 hover:border-[#FC7133]/30 transition-colors shadow-lg">
+                          <h3 className="text-lg font-black text-[#FC7133] mb-2 flex items-center gap-3">
                             <BrainCircuit className="w-5 h-5" /> AI Configuration
                           </h3>
                           
@@ -1949,7 +2066,7 @@ export default function Home() {
                               <select 
                                 value={aiStrictness}
                                 onChange={(e) => setAiStrictness(e.target.value)}
-                                className="w-full appearance-none px-4 py-3 bg-[#0A0A0B] border border-white/10 rounded-xl text-sm text-slate-200 outline-none focus:border-indigo-500/50 shadow-inner"
+                                className="w-full appearance-none px-4 py-3 bg-[#0A0A0B] border border-white/10 rounded-xl text-sm text-slate-200 outline-none focus:border-[#FC7133]/50 shadow-inner"
                               >
                                 <option value="lenient">Lenient (Optimistic Matching)</option>
                                 <option value="standard">Standard (Balanced)</option>
@@ -1963,9 +2080,9 @@ export default function Home() {
                           </div>
                         </div>
                       ) : (
-                        <div className="bg-[#18181B] border border-white/10 rounded-2xl p-8 space-y-6 hover:border-indigo-500/30 transition-colors shadow-lg flex flex-col justify-between">
+                        <div className="bg-[#18181B] border border-white/10 rounded-2xl p-8 space-y-6 hover:border-[#FC7133]/30 transition-colors shadow-lg flex flex-col justify-between">
                           <div>
-                            <h3 className="text-lg font-black text-indigo-400 mb-2 flex items-center gap-3">
+                            <h3 className="text-lg font-black text-[#FC7133] mb-2 flex items-center gap-3">
                               <Key className="w-5 h-5" /> Account Security
                             </h3>
                             <p className="text-sm text-slate-400 mt-2">
@@ -1975,7 +2092,7 @@ export default function Home() {
                           <div className="pt-2">
                             <button 
                               onClick={() => handleResetPassword(currentUser.id)}
-                              className="px-6 py-2.5 bg-indigo-500/10 border border-indigo-500/20 hover:bg-indigo-500/20 text-indigo-400 font-bold rounded-xl text-sm transition-colors w-full"
+                              className="px-6 py-2.5 bg-[#FC7133]/10 border border-[#FC7133]/20 hover:bg-[#FC7133]/20 text-[#FC7133] font-bold rounded-xl text-sm transition-colors w-full"
                             >
                               Reset My Password
                             </button>
@@ -1988,7 +2105,7 @@ export default function Home() {
                       <div className="pt-2 max-w-4xl flex justify-end">
                         <button 
                           onClick={() => saveSettings({ agencyName, aiStrictness })}
-                          className="px-6 py-2.5 bg-fuchsia-500 hover:bg-fuchsia-600 text-white font-bold rounded-xl text-sm transition-colors shadow-lg shadow-fuchsia-500/25"
+                          className="px-6 py-2.5 bg-[#FC7133] hover:bg-[#e65d20] text-white font-bold rounded-xl text-sm transition-colors shadow-lg shadow-[#FC7133]/25"
                         >
                           Save Preferences
                         </button>
@@ -2003,5 +2120,29 @@ export default function Home() {
 
       </main>
     </div>
+
+    {/* Dedicated High-Fidelity Printable/Exportable Report Container */}
+    {result && (
+      <div
+        style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          width: "1100px",
+          zIndex: -9999,
+          pointerEvents: "none",
+          visibility: isExporting ? "visible" : "hidden",
+          opacity: isExporting ? 1 : 0,
+        }}
+        aria-hidden="true"
+      >
+        <ReportPDFView 
+          ref={exportRef} 
+          res={activeCompareTab === -1 ? result : (compareResults[activeCompareTab] ?? result)} 
+          theme={theme} 
+        />
+      </div>
+    )}
+  </>
   );
 }

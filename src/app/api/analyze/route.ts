@@ -6,6 +6,11 @@ import google from 'googlethis';
 // Local LLM integration migrated to Ollama (Llama 3.1 8B) for massive performance/reasoning improvements
 async function scrapeLiveUniversities(domain: string, country: string, degreeObjective: string) {
   try {
+    const cLower = (country || "").toLowerCase();
+    if (cLower.includes("poland") || cLower.includes("india") || cLower.includes("search and select") || cLower.includes("search and selection")) {
+      return [];
+    }
+
     const query = `Top universities for ${degreeObjective} in ${domain.replace('_', ' ')} in ${country} tuition fees cgpa`;
     
     let results: {title: string, description: string}[] = [];
@@ -250,24 +255,31 @@ class LocalHeuristicBrain {
       insertMany(defaultUniversities);
     }
 
-    // Load universities dynamically from database
+    // Load universities dynamically from database (excluding Poland, India, Search and Select)
     const rows = getDb().prepare('SELECT * FROM universities').all();
-    this.universityDB = rows.map((row: any) => {
-      let parsedPrograms = row.programs;
-      if (typeof row.programs === 'string') {
-        try {
-          parsedPrograms = JSON.parse(row.programs);
-        } catch {
+    this.universityDB = rows
+      .filter((row: any) => {
+        const loc = (row.location || "").toLowerCase();
+        const nm = (row.name || "").toLowerCase();
+        return !loc.includes("poland") && !loc.includes("india") && !loc.includes("search and select") &&
+               !nm.includes("poland") && !nm.includes("india") && !nm.includes("search and select");
+      })
+      .map((row: any) => {
+        let parsedPrograms = row.programs;
+        if (typeof row.programs === 'string') {
+          try {
+            parsedPrograms = JSON.parse(row.programs);
+          } catch {
+            parsedPrograms = {};
+          }
+        } else if (!row.programs || typeof row.programs !== 'object') {
           parsedPrograms = {};
         }
-      } else if (!row.programs || typeof row.programs !== 'object') {
-        parsedPrograms = {};
-      }
-      return {
-        ...row,
-        programs: parsedPrograms
-      };
-    });
+        return {
+          ...row,
+          programs: parsedPrograms
+        };
+      });
   }
 
   async analyze(text: string, context: string, manualCountry: string, manualIntake: string, aiStrictness: string = "standard") {
@@ -1017,7 +1029,8 @@ class LocalHeuristicBrain {
         acceptanceRate: uni.acceptanceRate,
         campusSetting: uni.campusSetting,
         currency: uni.currency,
-        applicationDeadline: dynamicDeadline
+        applicationDeadline: dynamicDeadline,
+        courseLink: uni.courseLink || (uni as any).course_link || undefined
       });
       matchCount++;
     }
@@ -1148,7 +1161,7 @@ Counselor AI Summary:`;
 
         // Tier 2: Local Ollama AI with Strict 6s Circuit Breaker (Netlify Free Tier has a 10s hard timeout)
         if (!finalSummary) {
-            const aiEndpoint = process.env.LOCAL_AI_ENDPOINT || 'http://127.0.0.1:11434/api/generate';
+            const aiEndpoint = process.env.LOCAL_AI_ENDPOINT || 'http://192.168.0.66:11434/api/generate';
             const aiModel = process.env.LOCAL_AI_MODEL || 'llama3.1';
             const aiApiKey = process.env.LOCAL_AI_API_KEY;
             const aiHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -1167,29 +1180,54 @@ Counselor AI Summary:`;
             // Cap at 6000ms in production/serverless to guarantee we respond before Netlify's 10s gateway timeout
             const timeoutMs = isCloudEnv ? 6000 : 25000;
 
-            const ollamaResponse = await fetch(aiEndpoint, {
-                method: 'POST',
-                headers: aiHeaders,
-                body: JSON.stringify({
-                    model: aiModel,
-                    prompt: prompt,
-                    stream: false,
-                    keep_alive: -1,
-                    options: {
-                        num_predict: 120,
-                        temperature: 0.2
+            let ollamaResponse: Response | null = null;
+            try {
+                ollamaResponse = await fetch(aiEndpoint, {
+                    method: 'POST',
+                    headers: aiHeaders,
+                    body: JSON.stringify({
+                        model: aiModel,
+                        prompt: prompt,
+                        stream: false,
+                        keep_alive: -1,
+                        options: {
+                            num_predict: 120,
+                            temperature: 0.2
+                        }
+                    }),
+                    signal: AbortSignal.timeout(timeoutMs)
+                });
+            } catch (err: any) {
+                if (aiEndpoint.includes(':11435')) {
+                    const directUrl = aiEndpoint.replace(':11435', ':11434');
+                    try {
+                        ollamaResponse = await fetch(directUrl, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                model: aiModel,
+                                prompt: prompt,
+                                stream: false,
+                                keep_alive: -1,
+                                options: { num_predict: 120, temperature: 0.2 }
+                            }),
+                            signal: AbortSignal.timeout(timeoutMs)
+                        });
+                    } catch (e2) {
+                        throw err;
                     }
-                }),
-                signal: AbortSignal.timeout(timeoutMs)
-            });
+                } else {
+                    throw err;
+                }
+            }
             
-            if (ollamaResponse.ok) {
+            if (ollamaResponse && ollamaResponse.ok) {
                 const data = await ollamaResponse.json();
                 if (data.response) {
                     finalSummary = data.response.trim();
                 }
             } else {
-                throw new Error(`Ollama endpoint returned status ${ollamaResponse.status}`);
+                throw new Error(`Ollama endpoint returned status ${ollamaResponse?.status}`);
             }
         }
     } catch (e: any) {
