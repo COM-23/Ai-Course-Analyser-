@@ -297,7 +297,7 @@ export default function Home() {
   useEffect(() => {
     if (!currentUser) return;
     
-    fetch(`/api/students?counselorId=${currentUser.id}`)
+    fetch(`/api/students`)
       .then(res => res.json())
       .then(data => {
         if (Array.isArray(data)) {
@@ -1667,9 +1667,7 @@ export default function Home() {
                   <thead>
                     <tr className="border-b border-white/5 bg-black/40">
                       <th className="p-5 text-xs font-bold text-slate-500 uppercase tracking-widest whitespace-nowrap">Student Name</th>
-                      {currentUser?.role === 'super_admin' && (
-                        <th className="p-5 text-xs font-bold text-slate-500 uppercase tracking-widest whitespace-nowrap">Counselor</th>
-                      )}
+                      <th className="p-5 text-xs font-bold text-slate-500 uppercase tracking-widest whitespace-nowrap">Counselor</th>
                       <th className="p-5 text-xs font-bold text-slate-500 uppercase tracking-widest whitespace-nowrap">Domain</th>
                       <th className="p-5 text-xs font-bold text-slate-500 uppercase tracking-widest whitespace-nowrap">Target</th>
                       <th className="p-5 text-xs font-bold text-slate-500 uppercase tracking-widest whitespace-nowrap">Date Added</th>
@@ -1680,7 +1678,7 @@ export default function Home() {
                   <tbody className="divide-y divide-white/5">
                     {sortedHistory.length === 0 ? (
                       <tr>
-                        <td colSpan={currentUser?.role === 'super_admin' ? 7 : 6} className="p-12 text-center">
+                        <td colSpan={7} className="p-12 text-center">
                            <Users className="w-8 h-8 text-slate-600 mx-auto mb-3" />
                            <p className="text-sm font-medium text-slate-400">No students found matching your criteria.</p>
                            {searchQuery || filterDomain !== "All" ? (
@@ -1704,13 +1702,11 @@ export default function Home() {
                             <span className="text-sm font-bold text-slate-200">{name}</span>
                           </div>
                         </td>
-                        {currentUser?.role === 'super_admin' && (
-                          <td className="p-5">
-                            <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-[#FC7133]/10 text-[#FC7133] border border-[#FC7133]/20">
-                              {student.counselorName || 'Unknown'}
-                            </span>
-                          </td>
-                        )}
+                        <td className="p-5">
+                          <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-[#FC7133]/10 text-[#FC7133] border border-[#FC7133]/20">
+                            {student.counselorName || 'Team Counselor'}
+                          </span>
+                        </td>
                         <td className="p-5">
                           <span className="text-sm font-bold text-slate-400 capitalize">{student.studentDetails?.primaryDomain?.replace(/_/g, ' ') || "General"}</span>
                         </td>

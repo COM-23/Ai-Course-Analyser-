@@ -21,29 +21,26 @@ export async function GET(req: Request) {
 
     const url = new URL(req.url);
     const requestedCounselorId = url.searchParams.get('counselorId');
-    
-    // Security Check: You can only request your own ID unless you are super_admin
-    if (payload.role !== 'super_admin' && (payload as any).id.toString() !== requestedCounselorId) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-    }
 
     let rows;
-    if (payload.role === 'super_admin') {
-      rows = getDb().prepare(`
-        SELECT students.*, users.name as counselorName 
-        FROM students 
-        LEFT JOIN users ON students.counselor_id = users.id 
-        ORDER BY students.createdAt DESC
-      `).all();
-    } else {
+    if (requestedCounselorId && requestedCounselorId !== 'all') {
       rows = getDb().prepare(`
         SELECT students.*, users.name as counselorName 
         FROM students 
         LEFT JOIN users ON students.counselor_id = users.id 
         WHERE counselor_id = ? 
         ORDER BY students.createdAt DESC
-      `).all(payload.id);
+      `).all(requestedCounselorId);
+    } else {
+      // Shared roster across all counselors: everyone can view all evaluated profiles
+      rows = getDb().prepare(`
+        SELECT students.*, users.name as counselorName 
+        FROM students 
+        LEFT JOIN users ON students.counselor_id = users.id 
+        ORDER BY students.createdAt DESC
+      `).all();
     }
+
     
     // Parse JSON strings back into objects
     const formattedRows = rows.map((row: any) => ({

@@ -47,13 +47,37 @@ export function getDb(): DatabaseAdapter {
 
   if (isServerless) {
     const tmpPath = '/tmp/students.db';
+    let needsExtract = false;
     if (!fs.existsSync(tmpPath)) {
+      needsExtract = true;
+    } else {
       try {
-        if (fs.existsSync(dbPath)) {
+        const stat = fs.statSync(tmpPath);
+        if (stat.size < 10000000) needsExtract = true;
+      } catch (e) {
+        needsExtract = true;
+      }
+    }
+
+    if (needsExtract) {
+      try {
+        const gzCandidates = [
+          path.join(process.cwd(), 'students.db.gz'),
+          path.resolve(__dirname, 'students.db.gz'),
+          path.resolve(__dirname, '../../students.db.gz'),
+          path.resolve(__dirname, '../../../students.db.gz')
+        ];
+        const foundGz = gzCandidates.find(p => fs.existsSync(p));
+        if (foundGz) {
+          const zlib = require('zlib');
+          const compressed = fs.readFileSync(foundGz);
+          const decompressed = zlib.gunzipSync(compressed);
+          fs.writeFileSync(tmpPath, decompressed);
+        } else if (fs.existsSync(dbPath)) {
           fs.copyFileSync(dbPath, tmpPath);
         }
       } catch(e) {
-        console.warn("[DB] Could not copy initial db to /tmp:", e);
+        console.warn("[DB] Could not extract students.db.gz to /tmp:", e);
       }
     }
     dbPath = tmpPath;
@@ -240,6 +264,63 @@ export function getDb(): DatabaseAdapter {
 
   // One-time migration: fix any existing rows that have the wrong role value
   try { db.prepare("UPDATE users SET role = 'super_admin' WHERE role = 'superadmin'").run(); } catch (e) {}
+
+  // Auto-seed all 1,522 universities from db-seed.json if university count is low
+  try {
+    const uniCount = (db.prepare('SELECT COUNT(*) as count FROM universities').get() as any)?.count || 0;
+    if (uniCount < 100) {
+      const seedCandidates = [
+        path.join(process.cwd(), 'src/lib/db-seed.json'),
+        path.resolve(__dirname, 'db-seed.json'),
+        path.resolve(__dirname, '../../src/lib/db-seed.json'),
+        path.resolve(__dirname, '../../../src/lib/db-seed.json')
+      ];
+      const seedFile = seedCandidates.find(p => fs.existsSync(p));
+      if (seedFile) {
+        const seedData = JSON.parse(fs.readFileSync(seedFile, 'utf-8'));
+        if (Array.isArray(seedData.universities) && seedData.universities.length > 0) {
+          const insertStmt = db.prepare(`
+            INSERT OR REPLACE INTO universities (
+              id, name, location, domain, minCgpa, tuition, currency, programs,
+              acceptanceRate, campusSetting, minIelts, minToefl, minPte, minDuolingo,
+              ieltsWaiver, maxBacklogs, ranking, scholarships, intakes, courseLink
+            ) VALUES (
+              @id, @name, @location, @domain, @minCgpa, @tuition, @currency, @programs,
+              @acceptanceRate, @campusSetting, @minIelts, @minToefl, @minPte, @minDuolingo,
+              @ieltsWaiver, @maxBacklogs, @ranking, @scholarships, @intakes, @courseLink
+            )
+          `);
+          const insertMany = db.transaction((unis: any[]) => {
+            for (const u of unis) {
+              insertStmt.run({
+                id: u.id,
+                name: u.name,
+                location: u.location,
+                domain: u.domain || 'science_technology',
+                minCgpa: u.minCgpa || 7.0,
+                tuition: u.tuition || 30000,
+                currency: u.currency || 'USD',
+                programs: typeof u.programs === 'string' ? u.programs : JSON.stringify(u.programs || {}),
+                acceptanceRate: u.acceptanceRate || '50%',
+                campusSetting: u.campusSetting || 'Urban',
+                minIelts: u.minIelts || '6.5',
+                minToefl: u.minToefl || '88',
+                minPte: u.minPte || '62',
+                minDuolingo: u.minDuolingo || '115',
+                ieltsWaiver: u.ieltsWaiver || 'Yes',
+                maxBacklogs: u.maxBacklogs || 4,
+                ranking: u.ranking || 'Top Tier',
+                scholarships: u.scholarships || 'Available',
+                intakes: u.intakes || 'Fall, Spring',
+                courseLink: u.courseLink || null
+              });
+            }
+          });
+          insertMany(seedData.universities);
+        }
+      }
+    }
+  } catch (seedErr) {}
 
   dbInstance = db;
   return dbInstance;
