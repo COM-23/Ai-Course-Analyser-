@@ -17,6 +17,7 @@ rsync -avz --progress \
   --exclude '.git' \
   --exclude '*.db-wal' \
   --exclude '*.db-shm' \
+  --exclude 'programs.raw.csv' \
   "$LOCAL_DIR/" "$SERVER:$REMOTE_DIR/"
 
 echo ""
@@ -32,20 +33,23 @@ ssh "$SERVER" bash << 'REMOTE'
   echo "  -> Installing dependencies (including stable sqlite)..."
   npm install --prefer-offline 2>&1 | tail -5
 
-  echo "  -> Verifying SQLite engine..."
+  echo "  -> Verifying SQLite engine & AI Database counts..."
   node -e "
     let ok = false;
     try {
       const { DatabaseSync } = require('node:sqlite');
       const db = new DatabaseSync('students.db');
-      console.log('     [OK] Built-in node:sqlite working! Users in DB:', db.prepare('SELECT count(*) as c FROM users').get().c);
+      console.log('     [OK] Users in DB:', db.prepare('SELECT count(*) as c FROM users').get().c);
+      console.log('     [OK] Universities in DB:', db.prepare('SELECT count(*) as c FROM universities').get().c);
+      console.log('     [OK] Programs in DB:', db.prepare('SELECT count(*) as c FROM programs').get().c);
       ok = true;
     } catch(e) {}
     if (!ok) {
       try {
         const BetterSqlite = require('better-sqlite3');
         const db = new BetterSqlite('students.db');
-        console.log('     [OK] better-sqlite3 working! Users in DB:', db.prepare('SELECT count(*) as c FROM users').get().c);
+        console.log('     [OK] better-sqlite3: Universities:', db.prepare('SELECT count(*) as c FROM universities').get().c);
+        console.log('     [OK] better-sqlite3: Programs:', db.prepare('SELECT count(*) as c FROM programs').get().c);
       } catch(e) {
         console.log('     [INFO] Fallback error:', e.message);
       }
