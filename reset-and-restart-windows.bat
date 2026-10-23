@@ -20,6 +20,13 @@ for /f "tokens=5" %%a in ('netstat -aon ^| findstr :3004') do taskkill /f /pid %
 echo [3/4] Removing stale .next build cache...
 if exist ".next" rmdir /s /q ".next"
 
+echo Checking caniuse-lite dependencies...
+if not exist "node_modules\caniuse-lite\data\features\hidden.js" (
+    echo [REPAIR] caniuse-lite is corrupted. Self-repairing dependencies...
+    call npx update-browserslist-db@latest -y >nul 2>&1
+    call npm install caniuse-lite@latest --no-audit >nul 2>&1
+)
+
 echo [4/4] Compiling fresh build with latest logic...
 call npm run build
 if %errorlevel% neq 0 (
