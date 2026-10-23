@@ -27,34 +27,52 @@ export async function GET() {
     };
   }
 
-  // 2. Check Linux Ollama Server across LAN switch
-  try {
-    const baseUrl = (process.env.LOCAL_AI_ENDPOINT || 'http://192.168.0.66:11434/api/generate')
-      .replace(/\/api\/generate$/, '');
-    
-    const headers: Record<string, string> = {};
-    if (process.env.LOCAL_AI_API_KEY) {
-      headers['Authorization'] = `Bearer ${process.env.LOCAL_AI_API_KEY}`;
-      headers['x-api-key'] = process.env.LOCAL_AI_API_KEY;
-    }
+  // 2. Check Linux Ollama Server (primary endpoint with LAN fallbacks)
+  const primaryUrl = (process.env.LOCAL_AI_ENDPOINT || 'http://192.168.0.66:11434/api/generate')
+    .replace(/\/api\/generate$/, '');
+  
+  const candidateUrls = [
+    primaryUrl,
+    'http://192.168.0.66:11434',
+    'http://127.0.0.1:11434',
+    'http://localhost:11434'
+  ].filter((v, i, a) => a.indexOf(v) === i);
 
-    const tagsRes = await fetch(`${baseUrl}/api/tags`, {
-      method: 'GET',
-      headers,
-      signal: AbortSignal.timeout(4000)
-    });
+  let connected = false;
+  let lastError = '';
 
-    if (tagsRes.ok) {
-      const data = await tagsRes.json();
-      result.aiServer.status = 'connected';
-      result.aiServer.models = data.models?.map((m: any) => m.name) || [];
-    } else {
-      result.aiServer.status = 'error';
-      result.aiServer.statusCode = tagsRes.status;
+  for (const testUrl of candidateUrls) {
+    try {
+      const headers: Record<string, string> = {};
+      if (process.env.LOCAL_AI_API_KEY && (testUrl === primaryUrl || testUrl.includes('trycloudflare.com') || testUrl.includes(':11435'))) {
+        headers['Authorization'] = `Bearer ${process.env.LOCAL_AI_API_KEY}`;
+        headers['x-api-key'] = process.env.LOCAL_AI_API_KEY;
+      }
+
+      const tagsRes = await fetch(`${testUrl}/api/tags`, {
+        method: 'GET',
+        headers,
+        signal: AbortSignal.timeout(3000)
+      });
+
+      if (tagsRes.ok) {
+        const data = await tagsRes.json();
+        result.aiServer.status = 'connected';
+        result.aiServer.endpoint = `${testUrl}/api/generate`;
+        result.aiServer.models = data.models?.map((m: any) => m.name) || [];
+        connected = true;
+        break;
+      } else {
+        lastError = `Status ${tagsRes.status}`;
+      }
+    } catch (e: any) {
+      lastError = e?.message || String(e);
     }
-  } catch (aiErr: any) {
+  }
+
+  if (!connected) {
     result.aiServer.status = 'unreachable';
-    result.aiServer.error = aiErr?.message || String(aiErr);
+    result.aiServer.error = lastError;
   }
 
   return NextResponse.json(result);

@@ -1267,55 +1267,67 @@ Counselor AI Summary:`;
             // On local on-premise servers (Windows / Mac / Linux), allow 90 seconds so local Ollama has full time to generate.
             const timeoutMs = isCloudEnv ? 8000 : 90000;
 
-            let ollamaResponse: Response | null = null;
-            try {
-                ollamaResponse = await fetch(aiEndpoint, {
-                    method: 'POST',
-                    headers: aiHeaders,
-                    body: JSON.stringify({
-                        model: aiModel,
-                        prompt: prompt,
-                        stream: false,
-                        keep_alive: -1,
-                        options: {
-                            num_predict: 120,
-                            temperature: 0.2
-                        }
-                    }),
-                    signal: AbortSignal.timeout(timeoutMs)
+            // Determine priority endpoints based on environment:
+            // On-premise machines (Windows/Linux) prioritize direct LAN to 192.168.0.66 (0ms lag, no tunnel required).
+            // Cloud servers (Netlify) prioritize the configured Cloudflare tunnel with API key.
+            const endpointsToTry: { url: string; headers: Record<string, string> }[] = [];
+            if (!isCloudEnv) {
+                endpointsToTry.push({
+                    url: 'http://192.168.0.66:11434/api/generate',
+                    headers: { 'Content-Type': 'application/json' }
                 });
-            } catch (err: any) {
-                // If primary endpoint failed or timed out, try local endpoints on on-premise machines
-                const fallbackEndpoints = [
-                    'http://127.0.0.1:11434/api/generate',
-                    'http://localhost:11434/api/generate',
-                    'http://192.168.0.66:11434/api/generate',
-                    aiEndpoint.includes(':11435') ? aiEndpoint.replace(':11435', ':11434') : null
-                ].filter(Boolean).filter(ep => ep !== aiEndpoint) as string[];
+                endpointsToTry.push({
+                    url: 'http://127.0.0.1:11434/api/generate',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+            }
+            if (aiEndpoint) {
+                endpointsToTry.push({
+                    url: aiEndpoint,
+                    headers: aiHeaders
+                });
+            }
+            if (isCloudEnv) {
+                endpointsToTry.push({
+                    url: 'http://192.168.0.66:11434/api/generate',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+            }
 
-                for (const fbUrl of fallbackEndpoints) {
-                    try {
-                        ollamaResponse = await fetch(fbUrl, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                model: aiModel,
-                                prompt: prompt,
-                                stream: false,
-                                keep_alive: -1,
-                                options: { num_predict: 120, temperature: 0.2 }
-                            }),
-                            signal: AbortSignal.timeout(timeoutMs)
-                        });
-                        if (ollamaResponse && ollamaResponse.ok) break;
-                    } catch (e2) {
-                        // try next fallback
+            const uniqueEndpoints = endpointsToTry.filter(
+                (ep, idx, arr) => arr.findIndex(item => item.url === ep.url) === idx
+            );
+
+            let ollamaResponse: Response | null = null;
+            let lastAiError: any = null;
+
+            for (const target of uniqueEndpoints) {
+                try {
+                    ollamaResponse = await fetch(target.url, {
+                        method: 'POST',
+                        headers: target.headers,
+                        body: JSON.stringify({
+                            model: aiModel,
+                            prompt: prompt,
+                            stream: false,
+                            keep_alive: -1,
+                            options: {
+                                num_predict: 120,
+                                temperature: 0.2
+                            }
+                        }),
+                        signal: AbortSignal.timeout(timeoutMs)
+                    });
+                    if (ollamaResponse && ollamaResponse.ok) {
+                        break;
                     }
+                } catch (err: any) {
+                    lastAiError = err;
                 }
+            }
 
-                if (!ollamaResponse || !ollamaResponse.ok) {
-                    throw err;
-                }
+            if (!ollamaResponse || !ollamaResponse.ok) {
+                throw lastAiError || new Error(`Ollama endpoint returned status ${ollamaResponse?.status}`);
             }
             
             if (ollamaResponse && ollamaResponse.ok) {
