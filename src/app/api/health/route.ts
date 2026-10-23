@@ -3,10 +3,37 @@ import { NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 
 export async function GET() {
+  const isCloudEnv = !!(
+    process.env.NETLIFY ||
+    process.env.VERCEL ||
+    process.env.AWS_LAMBDA_FUNCTION_NAME ||
+    process.env.LAMBDA_TASK_ROOT ||
+    (typeof process.cwd === 'function' && process.cwd().startsWith('/var/task'))
+  );
+
+  const cloudDefaultEndpoint = 'https://headline-alive-subsidiaries-merge.trycloudflare.com/api/generate';
+  const cloudDefaultApiKey = 'lo_live_qDYoGoQFKz7bM35ijtVa-9BwznoFZhqO';
+
+  let configuredEndpoint = (process.env.LOCAL_AI_ENDPOINT || '').trim();
+  let configuredApiKey = (process.env.LOCAL_AI_API_KEY || '').trim();
+
+  if (isCloudEnv) {
+    if (!configuredEndpoint || configuredEndpoint.includes('192.168.') || configuredEndpoint.includes('127.0.0.1') || configuredEndpoint.includes('localhost')) {
+      configuredEndpoint = cloudDefaultEndpoint;
+    }
+    if (!configuredApiKey) {
+      configuredApiKey = cloudDefaultApiKey;
+    }
+  } else {
+    if (!configuredEndpoint) {
+      configuredEndpoint = 'http://192.168.0.66:11434/api/generate';
+    }
+  }
+
   const result: any = {
     database: { status: 'unknown' },
     aiServer: {
-      endpoint: process.env.LOCAL_AI_ENDPOINT || 'http://192.168.0.66:11434/api/generate',
+      endpoint: configuredEndpoint,
       model: process.env.LOCAL_AI_MODEL || 'llama3.1',
       status: 'unknown'
     }
@@ -27,53 +54,35 @@ export async function GET() {
     };
   }
 
-  // 2. Check Linux Ollama Server (primary endpoint with LAN fallbacks)
-  const primaryUrl = (process.env.LOCAL_AI_ENDPOINT || 'http://192.168.0.66:11434/api/generate')
-    .replace(/\/api\/generate$/, '');
-  
-  const candidateUrls = [
-    primaryUrl,
-    'http://192.168.0.66:11434',
-    'http://127.0.0.1:11434',
-    'http://localhost:11434'
-  ].filter((v, i, a) => a.indexOf(v) === i);
-
-  let connected = false;
-  let lastError = '';
-
-  for (const testUrl of candidateUrls) {
-    try {
-      const headers: Record<string, string> = {};
-      if (process.env.LOCAL_AI_API_KEY && (testUrl === primaryUrl || testUrl.includes('trycloudflare.com') || testUrl.includes(':11435'))) {
-        headers['Authorization'] = `Bearer ${process.env.LOCAL_AI_API_KEY}`;
-        headers['x-api-key'] = process.env.LOCAL_AI_API_KEY;
-      }
-
-      const tagsRes = await fetch(`${testUrl}/api/tags`, {
-        method: 'GET',
-        headers,
-        signal: AbortSignal.timeout(3000)
-      });
-
-      if (tagsRes.ok) {
-        const data = await tagsRes.json();
-        result.aiServer.status = 'connected';
-        result.aiServer.endpoint = `${testUrl}/api/generate`;
-        result.aiServer.models = data.models?.map((m: any) => m.name) || [];
-        connected = true;
-        break;
-      } else {
-        lastError = `Status ${tagsRes.status}`;
-      }
-    } catch (e: any) {
-      lastError = e?.message || String(e);
+  // 2. Check Linux Ollama Server
+  try {
+    const baseUrl = configuredEndpoint.replace(/\/api\/generate\/?$/, '');
+    
+    const headers: Record<string, string> = {};
+    if (configuredApiKey) {
+      headers['Authorization'] = `Bearer ${configuredApiKey}`;
+      headers['x-api-key'] = configuredApiKey;
     }
-  }
 
-  if (!connected) {
+    const tagsRes = await fetch(`${baseUrl}/api/tags`, {
+      method: 'GET',
+      headers,
+      signal: AbortSignal.timeout(isCloudEnv ? 8000 : 4000)
+    });
+
+    if (tagsRes.ok) {
+      const data = await tagsRes.json();
+      result.aiServer.status = 'connected';
+      result.aiServer.models = data.models?.map((m: any) => m.name) || [];
+    } else {
+      result.aiServer.status = 'error';
+      result.aiServer.statusCode = tagsRes.status;
+    }
+  } catch (aiErr: any) {
     result.aiServer.status = 'unreachable';
-    result.aiServer.error = lastError;
+    result.aiServer.error = aiErr?.message || String(aiErr);
   }
 
   return NextResponse.json(result);
 }
+
