@@ -1255,16 +1255,17 @@ Counselor AI Summary:`;
                 aiHeaders['Authorization'] = `Bearer ${aiApiKey}`;
                 aiHeaders['x-api-key'] = aiApiKey;
             }
+            // Strictly identify real cloud serverless environments (Netlify / Vercel / AWS Lambda)
             const isCloudEnv = !!(
                 process.env.NETLIFY ||
                 process.env.VERCEL ||
                 process.env.AWS_LAMBDA_FUNCTION_NAME ||
                 process.env.LAMBDA_TASK_ROOT ||
-                process.env.NODE_ENV === 'production' ||
-                (typeof process.cwd === 'function' && !process.cwd().includes('/Users/dishik'))
+                (typeof process.cwd === 'function' && process.cwd().startsWith('/var/task'))
             );
-            // Cap at 6000ms in production/serverless to guarantee we respond before Netlify's 10s gateway timeout
-            const timeoutMs = isCloudEnv ? 6000 : 25000;
+            // Cap at 8000ms only in cloud serverless to respond before Netlify's 10s gateway timeout.
+            // On local on-premise servers (Windows / Mac / Linux), allow 90 seconds so local Ollama has full time to generate.
+            const timeoutMs = isCloudEnv ? 8000 : 90000;
 
             let ollamaResponse: Response | null = null;
             try {
@@ -1284,10 +1285,17 @@ Counselor AI Summary:`;
                     signal: AbortSignal.timeout(timeoutMs)
                 });
             } catch (err: any) {
-                if (aiEndpoint.includes(':11435')) {
-                    const directUrl = aiEndpoint.replace(':11435', ':11434');
+                // If primary endpoint failed or timed out, try local endpoints on on-premise machines
+                const fallbackEndpoints = [
+                    'http://127.0.0.1:11434/api/generate',
+                    'http://localhost:11434/api/generate',
+                    'http://192.168.0.66:11434/api/generate',
+                    aiEndpoint.includes(':11435') ? aiEndpoint.replace(':11435', ':11434') : null
+                ].filter(Boolean).filter(ep => ep !== aiEndpoint) as string[];
+
+                for (const fbUrl of fallbackEndpoints) {
                     try {
-                        ollamaResponse = await fetch(directUrl, {
+                        ollamaResponse = await fetch(fbUrl, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
@@ -1299,10 +1307,13 @@ Counselor AI Summary:`;
                             }),
                             signal: AbortSignal.timeout(timeoutMs)
                         });
+                        if (ollamaResponse && ollamaResponse.ok) break;
                     } catch (e2) {
-                        throw err;
+                        // try next fallback
                     }
-                } else {
+                }
+
+                if (!ollamaResponse || !ollamaResponse.ok) {
                     throw err;
                 }
             }
