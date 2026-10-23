@@ -60,5 +60,6 @@ programs.csv
 programs.raw.csv
 *.csv.bak
 *.zip
+local-update-pack/
 
 
