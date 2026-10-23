@@ -31,6 +31,14 @@ export const FALLBACK_RATES: Record<string, number> = {
   PLN: 3.90,
   DKK: 6.67,
   NOK: 9.34,
+  HUF: 365.20,
+  CZK: 23.40,
+  TRY: 34.25,
+  VND: 25450,
+  KZT: 485.50,
+  QAR: 3.64,
+  KWD: 0.31,
+  OMR: 0.385,
   ZAR: 16.50
 };
 

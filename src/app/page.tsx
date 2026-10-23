@@ -119,8 +119,91 @@ const FALLBACK_FX_RATES: Record<string, number> = {
   PLN: 3.90,
   DKK: 6.67,
   NOK: 9.34,
+  HUF: 365.20,
+  CZK: 23.40,
+  TRY: 34.25,
+  VND: 25450,
+  KZT: 485.50,
+  QAR: 3.64,
+  KWD: 0.31,
+  OMR: 0.385,
   ZAR: 16.50
 };
+
+const CURRENCY_SYMBOLS: Record<string, string> = {
+  USD: "$",
+  INR: "₹",
+  EUR: "€",
+  GBP: "£",
+  CAD: "CA$",
+  AUD: "AU$",
+  NZD: "NZ$",
+  AED: "AED ",
+  SGD: "S$",
+  MYR: "RM ",
+  CHF: "CHF ",
+  SEK: "kr ",
+  DKK: "kr ",
+  NOK: "kr ",
+  JPY: "¥",
+  HKD: "HK$",
+  CNY: "¥",
+  SAR: "SAR ",
+  KRW: "₩",
+  THB: "฿",
+  IDR: "Rp ",
+  MUR: "₨ ",
+  BHD: "BD ",
+  GEL: "₾",
+  PLN: "zł ",
+  HUF: "Ft ",
+  CZK: "Kč ",
+  TRY: "₺",
+  VND: "₫",
+  KZT: "₸ ",
+  QAR: "QR ",
+  KWD: "KD ",
+  OMR: "OMR ",
+  ZAR: "R ",
+};
+
+const CURRENCY_LIST = [
+  { code: "NATIVE", label: "🌐 Native University Currency (with Live ₹ INR)" },
+  { code: "INR", label: "🇮🇳 India — INR ₹ (Lakhs)" },
+  { code: "USD", label: "🇺🇸 United States — USD ($)" },
+  { code: "EUR", label: "🇪🇺 European Union — EUR (€)" },
+  { code: "GBP", label: "🇬🇧 United Kingdom — GBP (£)" },
+  { code: "CAD", label: "🇨🇦 Canada — CAD (CA$)" },
+  { code: "AUD", label: "🇦🇺 Australia — AUD (AU$)" },
+  { code: "NZD", label: "🇳🇿 New Zealand — NZD (NZ$)" },
+  { code: "AED", label: "🇦🇪 UAE / Dubai — AED (Dirham)" },
+  { code: "SGD", label: "🇸🇬 Singapore — SGD (S$)" },
+  { code: "MYR", label: "🇲🇾 Malaysia — MYR (Ringgit RM)" },
+  { code: "CHF", label: "🇨🇭 Switzerland — CHF (Swiss Franc)" },
+  { code: "SEK", label: "🇸🇪 Sweden — SEK (Krona kr)" },
+  { code: "DKK", label: "🇩🇰 Denmark — DKK (Krone kr)" },
+  { code: "NOK", label: "🇳🇴 Norway — NOK (Krone kr)" },
+  { code: "JPY", label: "🇯🇵 Japan — JPY (Yen ¥)" },
+  { code: "HKD", label: "🇭🇰 Hong Kong — HKD (HK$)" },
+  { code: "CNY", label: "🇨🇳 China — CNY (Yuan ¥)" },
+  { code: "SAR", label: "🇸🇦 Saudi Arabia — SAR (Riyal)" },
+  { code: "KRW", label: "🇰🇷 South Korea — KRW (Won ₩)" },
+  { code: "THB", label: "🇹🇭 Thailand — THB (Baht ฿)" },
+  { code: "IDR", label: "🇮🇩 Indonesia — IDR (Rupiah Rp)" },
+  { code: "MUR", label: "🇲🇺 Mauritius — MUR (Rupee ₨)" },
+  { code: "BHD", label: "🇧🇭 Bahrain — BHD (Dinar BD)" },
+  { code: "GEL", label: "🇬🇪 Georgia — GEL (Lari ₾)" },
+  { code: "PLN", label: "🇵🇱 Poland — PLN (Zloty zł)" },
+  { code: "HUF", label: "🇭🇺 Hungary — HUF (Forint Ft)" },
+  { code: "CZK", label: "🇨🇿 Czech Republic — CZK (Koruna Kč)" },
+  { code: "TRY", label: "🇹🇷 Turkey — TRY (Lira ₺)" },
+  { code: "VND", label: "🇻🇳 Vietnam — VND (Dong ₫)" },
+  { code: "KZT", label: "🇰🇿 Kazakhstan — KZT (Tenge ₸)" },
+  { code: "QAR", label: "🇶🇦 Qatar — QAR (Riyal QR)" },
+  { code: "KWD", label: "🇰🇼 Kuwait — KWD (Dinar KD)" },
+  { code: "OMR", label: "🇴🇲 Oman — OMR (Rial OMR)" },
+  { code: "ZAR", label: "🇿🇦 South Africa — ZAR (Rand R)" },
+];
 
 function formatTuitionDisplay(uni: any, viewCurrency: string, fxRates: Record<string, number>) {
   const origCurrency = (uni.currency || 'USD').toUpperCase().trim();
@@ -154,7 +237,15 @@ function formatTuitionDisplay(uni: any, viewCurrency: string, fxRates: Record<st
     }).format(origTuition);
   } catch {}
 
-  // 1. User selected INR:
+  // 1. Default NATIVE view:
+  if (viewCurrency === 'NATIVE') {
+    return {
+      primary: formattedOrig + ' / yr',
+      secondary: origCurrency === 'INR' ? 'Domestic Tuition' : `≈ ₹${inrLakhs} Lakhs / yr (Real-time FX)`
+    };
+  }
+
+  // 2. User selected INR:
   if (viewCurrency === 'INR') {
     return {
       primary: `₹${inrLakhs} Lakhs / yr`,
@@ -162,55 +253,27 @@ function formatTuitionDisplay(uni: any, viewCurrency: string, fxRates: Record<st
     };
   }
 
-  // 2. User selected USD:
-  if (viewCurrency === 'USD') {
-    return {
-      primary: `$${Math.round(usdVal).toLocaleString()} / yr`,
-      secondary: origCurrency !== 'USD' ? `Orig: ${formattedOrig} (≈ ₹${inrLakhs}L)` : `≈ ₹${inrLakhs} Lakhs / yr`
-    };
+  // 3. User selected ANY global currency (USD, EUR, GBP, CAD, AUD, NZD, AED, SGD, MYR, JPY, etc.):
+  const targetRate = activeRates[viewCurrency] || FALLBACK_FX_RATES[viewCurrency] || 1;
+  const targetVal = Math.round(usdVal * targetRate);
+
+  let formattedTarget = '';
+  try {
+    formattedTarget = new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: viewCurrency,
+      maximumFractionDigits: 0
+    }).format(targetVal);
+  } catch {
+    const sym = CURRENCY_SYMBOLS[viewCurrency] || (viewCurrency + ' ');
+    formattedTarget = `${sym}${targetVal.toLocaleString()}`;
   }
 
-  // 3. User selected EUR:
-  if (viewCurrency === 'EUR') {
-    const eurVal = Math.round(usdVal * (activeRates.EUR || 0.892));
-    return {
-      primary: `€${eurVal.toLocaleString()} / yr`,
-      secondary: origCurrency !== 'EUR' ? `Orig: ${formattedOrig} (≈ ₹${inrLakhs}L)` : `≈ ₹${inrLakhs} Lakhs / yr`
-    };
-  }
-
-  // 4. User selected GBP:
-  if (viewCurrency === 'GBP') {
-    const gbpVal = Math.round(usdVal * (activeRates.GBP || 0.747));
-    return {
-      primary: `£${gbpVal.toLocaleString()} / yr`,
-      secondary: origCurrency !== 'GBP' ? `Orig: ${formattedOrig} (≈ ₹${inrLakhs}L)` : `≈ ₹${inrLakhs} Lakhs / yr`
-    };
-  }
-
-  // 5. User selected CAD:
-  if (viewCurrency === 'CAD') {
-    const cadVal = Math.round(usdVal * (activeRates.CAD || 1.401));
-    return {
-      primary: `CA$${cadVal.toLocaleString()} / yr`,
-      secondary: origCurrency !== 'CAD' ? `Orig: ${formattedOrig} (≈ ₹${inrLakhs}L)` : `≈ ₹${inrLakhs} Lakhs / yr`
-    };
-  }
-
-  // 6. User selected AUD:
-  if (viewCurrency === 'AUD') {
-    const audVal = Math.round(usdVal * (activeRates.AUD || 1.425));
-    return {
-      primary: `AU$${audVal.toLocaleString()} / yr`,
-      secondary: origCurrency !== 'AUD' ? `Orig: ${formattedOrig} (≈ ₹${inrLakhs}L)` : `≈ ₹${inrLakhs} Lakhs / yr`
-    };
-  }
-
-  // 7. Default NATIVE view:
-  // Shows formatted native fee AS PRIMARY and ALWAYS shows the real-time converted ₹ INR Lakhs AS SECONDARY!
   return {
-    primary: formattedOrig + ' / yr',
-    secondary: origCurrency === 'INR' ? 'Domestic Tuition' : `≈ ₹${inrLakhs} Lakhs / yr (Real-time FX)`
+    primary: `${formattedTarget} / yr`,
+    secondary: origCurrency !== viewCurrency 
+      ? `Orig: ${formattedOrig} (≈ ₹${inrLakhs}L)` 
+      : `≈ ₹${inrLakhs} Lakhs / yr`
   };
 }
 
@@ -1640,16 +1703,14 @@ export default function Home() {
                         <select
                           value={currencyView}
                           onChange={(e) => setCurrencyView(e.target.value)}
-                          className="bg-black/80 border border-white/20 text-xs font-bold text-emerald-400 rounded-lg px-2.5 py-1 outline-none focus:border-[#FC7133] transition-colors cursor-pointer"
+                          className="bg-black/80 border border-white/20 text-xs font-bold text-emerald-400 rounded-lg px-2.5 py-1 outline-none focus:border-[#FC7133] transition-colors cursor-pointer max-w-[240px] sm:max-w-[320px]"
                           title="Convert all university tuition fees in real-time"
                         >
-                          <option value="NATIVE">Native Currency (with Live ₹ INR)</option>
-                          <option value="INR">🇮🇳 INR ₹ (Lakhs)</option>
-                          <option value="USD">🇺🇸 USD ($)</option>
-                          <option value="EUR">🇪🇺 EUR (€)</option>
-                          <option value="GBP">🇬🇧 GBP (£)</option>
-                          <option value="CAD">🇨🇦 CAD (CA$)</option>
-                          <option value="AUD">🇦🇺 AUD (AU$)</option>
+                          {CURRENCY_LIST.map((c) => (
+                            <option key={c.code} value={c.code} className="bg-[#111113] text-slate-200">
+                              {c.label}
+                            </option>
+                          ))}
                         </select>
                         <div className="flex items-center gap-1.5 pl-2.5 border-l border-white/15 text-[10.5px] font-mono font-bold text-emerald-400/90">
                           <span className={`w-2 h-2 rounded-full ${fxLiveUpdated ? 'bg-emerald-400 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.8)]' : 'bg-amber-400'}`} />
