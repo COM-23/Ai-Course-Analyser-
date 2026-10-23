@@ -556,11 +556,53 @@ export default function Home() {
   useEffect(() => {
     if (!currentUser) return;
     
+    let deletedIds: any[] = [];
+    try {
+      const rawDeleted = localStorage.getItem('learn_overseas_deleted_ids');
+      if (rawDeleted) deletedIds = JSON.parse(rawDeleted);
+    } catch (e) {}
+
+    // First load from localStorage immediately for instantaneous UI render
+    let cached: AnalysisResult[] = [];
+    try {
+      const rawCached = localStorage.getItem('learn_overseas_students');
+      if (rawCached) {
+        cached = (JSON.parse(rawCached) as AnalysisResult[]).filter((s: any) => !deletedIds.includes(s.id));
+        setHistory(cached);
+      }
+    } catch (e) {}
+
     fetch(`/api/students`)
       .then(res => res.json())
       .then(data => {
         if (Array.isArray(data)) {
-          setHistory(data);
+          // Filter out any explicitly deleted IDs
+          const cleanServerData = data.filter((s: any) => !deletedIds.includes(s.id));
+          
+          // Merge server data with any locally cached students/comparisons
+          const mergedMap = new Map<any, AnalysisResult>();
+          for (const s of cleanServerData) {
+            mergedMap.set(s.id, s);
+          }
+          for (const c of cached) {
+            if (!deletedIds.includes(c.id)) {
+              const existing = mergedMap.get(c.id);
+              if (!existing) {
+                mergedMap.set(c.id, c);
+              } else if (c.comparisonData && c.comparisonData.length > 0 && (!existing.comparisonData || existing.comparisonData.length === 0)) {
+                mergedMap.set(c.id, { ...existing, comparisonData: c.comparisonData });
+              }
+            }
+          }
+          const finalRoster = Array.from(mergedMap.values()).sort((a, b) => {
+            const timeA = new Date(a.createdAt || 0).getTime();
+            const timeB = new Date(b.createdAt || 0).getTime();
+            return timeB - timeA;
+          });
+          setHistory(finalRoster);
+          try {
+            localStorage.setItem('learn_overseas_students', JSON.stringify(finalRoster));
+          } catch (e) {}
         }
       })
       .catch(err => console.error('Error fetching history:', err));
@@ -688,12 +730,17 @@ export default function Home() {
       setResult(data);
       setHistory(prev => {
         const existingIdx = prev.findIndex((s: any) => s.id === data.id);
+        let newHistory: AnalysisResult[];
         if (existingIdx >= 0) {
-          const newHistory = [...prev];
+          newHistory = [...prev];
           newHistory[existingIdx] = data;
-          return newHistory;
+        } else {
+          newHistory = [data, ...prev];
         }
-        return [data, ...prev];
+        try {
+          localStorage.setItem('learn_overseas_students', JSON.stringify(newHistory));
+        } catch (e) {}
+        return newHistory;
       }); 
     } catch (err: any) {
       console.error(err);
@@ -766,6 +813,24 @@ export default function Home() {
         setCompareResults([...accumulated]);
         setCompareProgress(Math.round(((i + 1) / compareCountries.length) * 100));
       }
+
+      // Attach comparisonData directly to active student result and history cache
+      if (accumulated.length > 0) {
+        setResult(prev => (prev ? { ...prev, comparisonData: accumulated } : null));
+        setHistory(prev => {
+          const targetId = result?.id ?? (accumulated[0] as any)?.id;
+          const updated = prev.map(s => {
+            if (s.id === targetId || (s.studentDetails?.name && s.studentDetails.name === result?.studentDetails?.name)) {
+              return { ...s, comparisonData: accumulated };
+            }
+            return s;
+          });
+          try {
+            localStorage.setItem('learn_overseas_students', JSON.stringify(updated));
+          } catch (e) {}
+          return updated;
+        });
+      }
     } catch (err) {
       console.error(err);
       setError((err as Error).message || "An unexpected error occurred in comparison.");
@@ -814,6 +879,16 @@ export default function Home() {
 
   const handleDeleteStudent = async (studentToDelete: AnalysisResult) => {
     if (studentToDelete && studentToDelete.id) {
+      // Record deleted ID in localStorage so even serverless cold starts never resurrect it
+      try {
+        const rawDeleted = localStorage.getItem('learn_overseas_deleted_ids');
+        const deletedIds = rawDeleted ? JSON.parse(rawDeleted) : [];
+        if (!deletedIds.includes(studentToDelete.id)) {
+          deletedIds.push(studentToDelete.id);
+          localStorage.setItem('learn_overseas_deleted_ids', JSON.stringify(deletedIds));
+        }
+      } catch (e) {}
+
       try {
         await fetch('/api/students', {
           method: 'DELETE',
@@ -825,9 +900,15 @@ export default function Home() {
       }
     }
     
-    setHistory(prev => prev.filter(s => s !== studentToDelete));
+    setHistory(prev => {
+      const updated = prev.filter(s => s !== studentToDelete && s.id !== studentToDelete.id);
+      try {
+        localStorage.setItem('learn_overseas_students', JSON.stringify(updated));
+      } catch (e) {}
+      return updated;
+    });
+
     if (result && studentToDelete && result.id === studentToDelete.id) {
-      // If we deleted the actively viewed student, clear the view
       setResult(null);
     }
   };
