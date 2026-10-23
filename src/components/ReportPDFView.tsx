@@ -768,30 +768,106 @@ export const ReportPDFView = React.forwardRef<HTMLDivElement, ReportPDFViewProps
 
                       {/* Tuition */}
                       <td style={{ padding: "12px 14px", verticalAlign: "top" }}>
-                        <div style={{ fontWeight: 800, color: c.textPrimary }}>
-                          {new Intl.NumberFormat("en-US", {
-                            style: "currency",
-                            currency: uni.currency || "USD",
-                            maximumFractionDigits: 0,
-                          }).format(uni.tuition || 0)}
-                        </div>
-                        {uni.tuitionConverted && (
-                          <div
-                            style={{
-                              fontSize: "9.5px",
-                              fontWeight: 700,
-                              color: "#10B981",
-                              marginTop: "2px",
-                            }}
-                          >
-                            {uni.tuitionConverted.replace(/[()]/g, "")}
-                          </div>
-                        )}
+                        {(() => {
+                          const rawTuition = typeof uni.tuition === 'number' 
+                            ? uni.tuition 
+                            : parseFloat(String(uni.tuition || 0).replace(/[^\d.]/g, '')) || 0;
+                          
+                          if (rawTuition === 0) {
+                            return (
+                              <div style={{ fontWeight: 800, color: "#10B981" }}>
+                                Tuition-Free (€0)
+                              </div>
+                            );
+                          }
+
+                          const curr = (uni.currency || 'USD').toUpperCase();
+                          let formatted = `${curr} ${rawTuition.toLocaleString()}`;
+                          try {
+                            formatted = new Intl.NumberFormat("en-US", {
+                              style: "currency",
+                              currency: curr,
+                              maximumFractionDigits: 0
+                            }).format(rawTuition);
+                          } catch {}
+
+                          return (
+                            <div>
+                              <div style={{ fontWeight: 800, color: c.textPrimary }}>{formatted}</div>
+                              {uni.tuitionConverted && (
+                                <div
+                                  style={{
+                                    fontSize: "9.5px",
+                                    fontWeight: 700,
+                                    color: "#10B981",
+                                    marginTop: "2px",
+                                  }}
+                                >
+                                  {uni.tuitionConverted.replace(/[()]/g, "")}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </td>
 
                       {/* Deadline */}
-                      <td style={{ padding: "12px 10px", fontSize: "10.5px", fontWeight: 700, color: "#E11D48", verticalAlign: "top" }}>
-                        {uni.applicationDeadline || "Rolling"}
+                      <td style={{ padding: "12px 10px", fontSize: "10.5px", verticalAlign: "top" }}>
+                        {(() => {
+                          const dl = uni.applicationDeadline || "Rolling Admissions";
+                          if (!dl.includes(':')) {
+                            return (
+                              <span style={{ fontWeight: 700, color: dl.toLowerCase().includes('rolling') ? "#10B981" : "#E11D48" }}>
+                                {dl}
+                              </span>
+                            );
+                          }
+
+                          const parts = dl.split(/,\s*/);
+                          const targetLower = (res.studentDetails?.targetIntake || "").toLowerCase();
+
+                          return (
+                            <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                              {parts.map((p: string, pIdx: number) => {
+                                const [rawIntake, rawDate] = p.split(':').map((s: string) => s.trim());
+                                if (!rawIntake || !rawDate) return <div key={pIdx} style={{ color: "#E11D48", fontWeight: 700 }}>{p}</div>;
+
+                                let intakeLabel = rawIntake;
+                                if (/^sep/i.test(rawIntake)) intakeLabel = 'Sep (Fall)';
+                                else if (/^jan/i.test(rawIntake)) intakeLabel = 'Jan (Spring)';
+                                else if (/^may/i.test(rawIntake)) intakeLabel = 'May (Summer)';
+                                else if (/^aug/i.test(rawIntake)) intakeLabel = 'Aug (Fall)';
+
+                                const isTarget = targetLower && (
+                                  (targetLower.includes('fall') && (/sep|aug|fall/i.test(rawIntake))) ||
+                                  (targetLower.includes('spring') && (/jan|spring|winter/i.test(rawIntake))) ||
+                                  (targetLower.includes('summer') && (/may|summer/i.test(rawIntake)))
+                                );
+
+                                return (
+                                  <div
+                                    key={pIdx}
+                                    style={{
+                                      fontSize: "9px",
+                                      padding: "3px 6px",
+                                      borderRadius: "4px",
+                                      backgroundColor: isTarget ? "#FC713318" : "#F8FAFC",
+                                      border: isTarget ? "1px solid #FC7133" : "1px solid #E2E8F0",
+                                      color: isTarget ? "#FC7133" : "#475569",
+                                      fontWeight: isTarget ? 800 : 600,
+                                      display: "flex",
+                                      justifyContent: "space-between",
+                                      gap: "6px"
+                                    }}
+                                  >
+                                    <span>{intakeLabel}:</span>
+                                    <span style={{ color: isTarget ? "#FC7133" : "#E11D48", fontWeight: 800 }}>{rawDate}</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          );
+                        })()}
                       </td>
 
                       {/* Acceptance Rate */}

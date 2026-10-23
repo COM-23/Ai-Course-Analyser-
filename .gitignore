@@ -51,9 +51,14 @@ api-keys*.json
 *.tsbuildinfo
 next-env.d.ts
 
-# Large raw CSV databases
+# Confidential data & CSV files (CRITICAL: Never commit to Git)
+*.csv
+*.tsv
+*.enc
+*.sql
 programs.csv
 programs.raw.csv
 *.csv.bak
 *.zip
+
 

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { getExchangeRates, FALLBACK_RATES } from "@/lib/currency";
 import * as cheerio from 'cheerio';
 import google from 'googlethis';
 
@@ -545,6 +546,22 @@ class LocalHeuristicBrain {
     // Check for GBP
     const gbpMatch = lowerText.match(/(?:budget|funds|financials|affordable|max|spend|afford|around)?[\sa-zA-Z:-]{0,20}(?:gbp|pounds?|£)[\s]*([0-9,]{4,})/i) 
                   || lowerText.match(/([0-9,]{4,})\s*(?:gbp|pounds?|£)/i);
+
+    // Check for CAD
+    const cadMatch = lowerText.match(/(?:budget|funds|financials|affordable|max|spend|afford|around)?[\sa-zA-Z:-]{0,20}(?:cad|ca\$|c\$)[\s]*([0-9,]{4,})/i) 
+                  || lowerText.match(/([0-9,]{4,})\s*(?:cad|canadian dollars?)/i);
+
+    // Check for AUD
+    const audMatch = lowerText.match(/(?:budget|funds|financials|affordable|max|spend|afford|around)?[\sa-zA-Z:-]{0,20}(?:aud|au\$|a\$)[\s]*([0-9,]{4,})/i) 
+                  || lowerText.match(/([0-9,]{4,})\s*(?:aud|australian dollars?)/i);
+
+    // Check for AED
+    const aedMatch = lowerText.match(/(?:budget|funds|financials|affordable|max|spend|afford|around)?[\sa-zA-Z:-]{0,20}(?:aed|dirhams?)[\s]*([0-9,]{4,})/i) 
+                  || lowerText.match(/([0-9,]{4,})\s*(?:aed|dirhams?)/i);
+
+    // Check for SGD
+    const sgdMatch = lowerText.match(/(?:budget|funds|financials|affordable|max|spend|afford|around)?[\sa-zA-Z:-]{0,20}(?:sgd|s\$)[\s]*([0-9,]{4,})/i) 
+                  || lowerText.match(/([0-9,]{4,})\s*(?:sgd|singapore dollars?)/i);
     
     // Check for standard numbers/USD (e.g. "$50,000", "50000")
     const generalMatch = lowerText.match(/(?:budget|funds|financials|affordable|max|spend|afford|around)[\sa-zA-Z:-]{0,20}(?:usd|\$)?\s*([0-9,]+)/i) || lowerText.match(/(?:usd|\$)[\s]*([0-9,]+)/i);
@@ -558,23 +575,13 @@ class LocalHeuristicBrain {
     const kMatch = lowerText.match(/(?:budget|funds|max|spend)?[\s\w:-]{0,20}(?:usd|\$)?\s*([0-9]{2,3})\s*k\b/i) || lowerText.match(/(?:usd|\$)\s*([0-9]{2,3})\s*k\b/i);
 
     // Fetch Real-time Exchange Rates
-    let rates: Record<string, number> = { INR: 83.5, EUR: 0.92, GBP: 0.79, CAD: 1.35, AUD: 1.5, NZD: 1.65, AED: 3.67, SGD: 1.35, MYR: 4.7 };
+    let rates: Record<string, number> = FALLBACK_RATES;
     try {
-      const rateRes = await fetch("https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usd.json", { cache: 'no-store' });
-      if (rateRes.ok) {
-        const rateData = await rateRes.json();
-        if (rateData?.usd) {
-           const upperRates: Record<string, number> = {};
-           for (const [key, val] of Object.entries(rateData.usd)) {
-               upperRates[key.toUpperCase()] = val as number;
-           }
-           rates = { ...rates, ...upperRates };
-        }
-      }
+      rates = await getExchangeRates();
     } catch (e) {
-      console.error("Failed to fetch real-time conversion, using fallback", e);
+      console.warn("Using fallback exchange rates", e);
     }
-    const inrToUsdRate = rates.INR;
+    const inrToUsdRate = rates.INR || 86.5;
 
     let inputCurrency = "USD";
 
@@ -589,11 +596,27 @@ class LocalHeuristicBrain {
     } else if (eurMatch && eurMatch[1]) {
       inputCurrency = "EUR";
       const parsed = parseInt(eurMatch[1].replace(/,/g, ''));
-      extractedBudget = parsed / rates.EUR;
+      extractedBudget = parsed / (rates.EUR || 0.91);
     } else if (gbpMatch && gbpMatch[1]) {
       inputCurrency = "GBP";
       const parsed = parseInt(gbpMatch[1].replace(/,/g, ''));
-      extractedBudget = parsed / rates.GBP;
+      extractedBudget = parsed / (rates.GBP || 0.77);
+    } else if (cadMatch && cadMatch[1]) {
+      inputCurrency = "CAD";
+      const parsed = parseInt(cadMatch[1].replace(/,/g, ''));
+      extractedBudget = parsed / (rates.CAD || 1.39);
+    } else if (audMatch && audMatch[1]) {
+      inputCurrency = "AUD";
+      const parsed = parseInt(audMatch[1].replace(/,/g, ''));
+      extractedBudget = parsed / (rates.AUD || 1.48);
+    } else if (aedMatch && aedMatch[1]) {
+      inputCurrency = "AED";
+      const parsed = parseInt(aedMatch[1].replace(/,/g, ''));
+      extractedBudget = parsed / (rates.AED || 3.67);
+    } else if (sgdMatch && sgdMatch[1]) {
+      inputCurrency = "SGD";
+      const parsed = parseInt(sgdMatch[1].replace(/,/g, ''));
+      extractedBudget = parsed / (rates.SGD || 1.33);
     } else if (kMatch && kMatch[1]) {
       inputCurrency = "USD";
       extractedBudget = parseInt(kMatch[1]) * 1000;
@@ -1000,17 +1023,28 @@ class LocalHeuristicBrain {
         continue;
       }
       
-      let dynamicDeadline = "Rolling Admissions";
-      if (manualIntake.toLowerCase().includes("fall")) {
-         dynamicDeadline = category === "Reach" ? "Dec 15 - Jan 15" : "Feb 1 - Mar 15";
-      } else if (manualIntake.toLowerCase().includes("spring")) {
-         dynamicDeadline = category === "Reach" ? "Sep 1 - Oct 15" : "Oct 15 - Nov 30";
+      let dynamicDeadline = (uni as any).deadlines || (uni as any).applicationDeadline || "";
+      if (!dynamicDeadline || dynamicDeadline === "Rolling Admissions" || dynamicDeadline === "Fall, Spring") {
+        if (manualIntake.toLowerCase().includes("fall")) {
+           dynamicDeadline = category === "Reach" ? "Dec 15 - Jan 15" : "Feb 1 - Mar 15";
+        } else if (manualIntake.toLowerCase().includes("spring")) {
+           dynamicDeadline = category === "Reach" ? "Sep 1 - Oct 15" : "Oct 15 - Nov 30";
+        } else {
+           dynamicDeadline = "Rolling Admissions";
+        }
       }
 
       let tuitionConverted = "";
-      if (uni.tuition && uni.currency) {
-         const fromRate = rates[uni.currency] || 1;
-         const inrValue = (uni.tuition / fromRate) * inrToUsdRate;
+      const rawTuition = typeof uni.tuition === 'number'
+        ? uni.tuition
+        : parseFloat(String(uni.tuition || 0).replace(/[^\d.]/g, '')) || 0;
+
+      if (rawTuition === 0) {
+         tuitionConverted = " (Tuition-Free / €0)";
+      } else if (rawTuition > 0) {
+         const currCode = (uni.currency || 'USD').toUpperCase().trim();
+         const fromRate = rates[currCode] || FALLBACK_RATES[currCode] || 1;
+         const inrValue = (rawTuition / fromRate) * inrToUsdRate;
          const lakhs = inrValue / 100000;
          tuitionConverted = ` (≈ ₹${lakhs.toFixed(1)} Lakhs)`;
       }
@@ -1136,7 +1170,15 @@ class LocalHeuristicBrain {
     const minBudget = Math.max(10000 * rateMultiplier, (extractedBudget - 10000) * rateMultiplier);
     const maxBudget = (extractedBudget + 20000) * rateMultiplier;
 
-    result.estimatedBudgetRange = `${targetSymbol}${minBudget.toLocaleString('en-US', {maximumFractionDigits: 0})} - ${targetSymbol}${maxBudget.toLocaleString('en-US', {maximumFractionDigits: 0})} / year (Based on profile indicators)`;
+    if (targetCurrency === "INR") {
+      const minLakhs = (minBudget / 100000).toFixed(1);
+      const maxLakhs = (maxBudget / 100000).toFixed(1);
+      result.estimatedBudgetRange = `₹${minLakhs}L - ₹${maxLakhs}L / year (Based on profile indicators)`;
+    } else {
+      const minInrLakhs = (((minBudget / rateMultiplier) * inrToUsdRate) / 100000).toFixed(1);
+      const maxInrLakhs = (((maxBudget / rateMultiplier) * inrToUsdRate) / 100000).toFixed(1);
+      result.estimatedBudgetRange = `${targetSymbol}${minBudget.toLocaleString('en-US', {maximumFractionDigits: 0})} - ${targetSymbol}${maxBudget.toLocaleString('en-US', {maximumFractionDigits: 0})} / yr (≈ ₹${minInrLakhs}L - ₹${maxInrLakhs}L)`;
+    }
 
     // Generate a guaranteed high-quality programmatic summary
     const topColleges = result.recommendedColleges.slice(0, 3).map(c => c.name).join(", ");

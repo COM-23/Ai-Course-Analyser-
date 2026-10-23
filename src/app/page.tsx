@@ -35,7 +35,10 @@ import {
   Plus,
   Key,
   Download,
-  ExternalLink
+  ExternalLink,
+  DollarSign,
+  Calendar,
+  Coins
 } from "lucide-react";
 import * as htmlToImage from 'html-to-image';
 import { jsPDF } from 'jspdf';
@@ -90,10 +93,266 @@ type AnalysisResult = {
   counselorName?: string;
 };
 
+const FALLBACK_FX_RATES: Record<string, number> = {
+  USD: 1,
+  INR: 94.90,
+  EUR: 0.892,
+  GBP: 0.747,
+  CAD: 1.401,
+  AUD: 1.425,
+  NZD: 1.760,
+  AED: 3.673,
+  SGD: 1.277,
+  MYR: 4.083,
+  CHF: 0.821,
+  SEK: 9.910,
+  JPY: 156.92,
+  HKD: 7.837,
+  CNY: 6.688,
+  SAR: 3.750,
+  KRW: 1324.95,
+  THB: 33.73,
+  IDR: 18082.48,
+  MUR: 47.27,
+  BHD: 0.376,
+  GEL: 2.60,
+  PLN: 3.90,
+  DKK: 6.67,
+  NOK: 9.34,
+  ZAR: 16.50
+};
+
+function formatTuitionDisplay(uni: any, viewCurrency: string, fxRates: Record<string, number>) {
+  const origCurrency = (uni.currency || 'USD').toUpperCase().trim();
+  let origTuition = 0;
+  if (typeof uni.tuition === 'number') {
+    origTuition = uni.tuition;
+  } else if (typeof uni.tuition === 'string') {
+    origTuition = parseFloat(uni.tuition.replace(/[^\d.]/g, '')) || 0;
+  }
+
+  if (origTuition === 0) {
+    return {
+      primary: "Tuition-Free (€0)",
+      secondary: "No tuition fee required"
+    };
+  }
+
+  const activeRates = { ...FALLBACK_FX_RATES, ...fxRates };
+  const fromRate = activeRates[origCurrency] || 1;
+  const usdVal = origTuition / fromRate;
+  const inrRate = activeRates.INR || 94.90;
+  const inrVal = usdVal * inrRate;
+  const inrLakhs = (inrVal / 100000).toFixed(1);
+
+  let formattedOrig = `${origCurrency} ${origTuition.toLocaleString()}`;
+  try {
+    formattedOrig = new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: origCurrency,
+      maximumFractionDigits: 0
+    }).format(origTuition);
+  } catch {}
+
+  // 1. User selected INR:
+  if (viewCurrency === 'INR') {
+    return {
+      primary: `₹${inrLakhs} Lakhs / yr`,
+      secondary: origCurrency !== 'INR' ? `Orig: ${formattedOrig} / yr` : 'Indian Rupee'
+    };
+  }
+
+  // 2. User selected USD:
+  if (viewCurrency === 'USD') {
+    return {
+      primary: `$${Math.round(usdVal).toLocaleString()} / yr`,
+      secondary: origCurrency !== 'USD' ? `Orig: ${formattedOrig} (≈ ₹${inrLakhs}L)` : `≈ ₹${inrLakhs} Lakhs / yr`
+    };
+  }
+
+  // 3. User selected EUR:
+  if (viewCurrency === 'EUR') {
+    const eurVal = Math.round(usdVal * (activeRates.EUR || 0.892));
+    return {
+      primary: `€${eurVal.toLocaleString()} / yr`,
+      secondary: origCurrency !== 'EUR' ? `Orig: ${formattedOrig} (≈ ₹${inrLakhs}L)` : `≈ ₹${inrLakhs} Lakhs / yr`
+    };
+  }
+
+  // 4. User selected GBP:
+  if (viewCurrency === 'GBP') {
+    const gbpVal = Math.round(usdVal * (activeRates.GBP || 0.747));
+    return {
+      primary: `£${gbpVal.toLocaleString()} / yr`,
+      secondary: origCurrency !== 'GBP' ? `Orig: ${formattedOrig} (≈ ₹${inrLakhs}L)` : `≈ ₹${inrLakhs} Lakhs / yr`
+    };
+  }
+
+  // 5. User selected CAD:
+  if (viewCurrency === 'CAD') {
+    const cadVal = Math.round(usdVal * (activeRates.CAD || 1.401));
+    return {
+      primary: `CA$${cadVal.toLocaleString()} / yr`,
+      secondary: origCurrency !== 'CAD' ? `Orig: ${formattedOrig} (≈ ₹${inrLakhs}L)` : `≈ ₹${inrLakhs} Lakhs / yr`
+    };
+  }
+
+  // 6. User selected AUD:
+  if (viewCurrency === 'AUD') {
+    const audVal = Math.round(usdVal * (activeRates.AUD || 1.425));
+    return {
+      primary: `AU$${audVal.toLocaleString()} / yr`,
+      secondary: origCurrency !== 'AUD' ? `Orig: ${formattedOrig} (≈ ₹${inrLakhs}L)` : `≈ ₹${inrLakhs} Lakhs / yr`
+    };
+  }
+
+  // 7. Default NATIVE view:
+  // Shows formatted native fee AS PRIMARY and ALWAYS shows the real-time converted ₹ INR Lakhs AS SECONDARY!
+  return {
+    primary: formattedOrig + ' / yr',
+    secondary: origCurrency === 'INR' ? 'Domestic Tuition' : `≈ ₹${inrLakhs} Lakhs / yr (Real-time FX)`
+  };
+}
+
+function renderDeadlinePills(deadlineStr: string, targetIntake?: string) {
+  if (!deadlineStr || deadlineStr === 'Rolling' || deadlineStr === 'Rolling Admissions') {
+    return (
+      <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 whitespace-nowrap shadow-sm">
+        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+        ⚡ Rolling Admissions
+      </div>
+    );
+  }
+
+  // Multi-intake deadlines (e.g. 'Sep: 26 Feb, Jan: 01 Jul' or 'Aug: ASAP' or 'Fall(Aug): 26 Feb, Spring(Jan): 29 Sep')
+  if (deadlineStr.includes(':')) {
+    const parts = deadlineStr.split(/,\s*/);
+    const targetLower = (targetIntake || '').toLowerCase();
+
+    return (
+      <div className="flex flex-col gap-1.5 min-w-[170px]">
+        {parts.map((part, pIdx) => {
+          const [rawIntake, rawDate] = part.split(':').map(s => s.trim());
+          if (!rawIntake || !rawDate) return <span key={pIdx} className="text-xs text-rose-300 font-bold">{part}</span>;
+
+          let intakeLabel = rawIntake;
+          let intakeIcon = '🎓';
+          if (/^sep/i.test(rawIntake)) { intakeLabel = 'Sep (Fall Intake)'; intakeIcon = '🍂'; }
+          else if (/^aug/i.test(rawIntake)) { intakeLabel = 'Aug (Fall Intake)'; intakeIcon = '🍂'; }
+          else if (/^jan/i.test(rawIntake)) { intakeLabel = 'Jan (Spring Intake)'; intakeIcon = '🌱'; }
+          else if (/^feb/i.test(rawIntake)) { intakeLabel = 'Feb (Spring Intake)'; intakeIcon = '🌱'; }
+          else if (/^may/i.test(rawIntake)) { intakeLabel = 'May (Summer Intake)'; intakeIcon = '☀️'; }
+          else if (/^jun|jul/i.test(rawIntake)) { intakeLabel = `${rawIntake} (Summer Intake)`; intakeIcon = '☀️'; }
+          else if (/^oct|nov|dec/i.test(rawIntake)) { intakeLabel = `${rawIntake} (Winter Intake)`; intakeIcon = '❄️'; }
+          else if (/fall/i.test(rawIntake)) { intakeLabel = 'Fall Intake'; intakeIcon = '🍂'; }
+          else if (/spring/i.test(rawIntake)) { intakeLabel = 'Spring Intake'; intakeIcon = '🌱'; }
+
+          const isTarget = targetLower && (
+            (targetLower.includes('fall') && (/sep|aug|fall/i.test(rawIntake))) ||
+            (targetLower.includes('spring') && (/jan|feb|spring|winter/i.test(rawIntake))) ||
+            (targetLower.includes('summer') && (/may|jun|jul|summer/i.test(rawIntake)))
+          );
+
+          const isAsap = /asap/i.test(rawDate);
+
+          return (
+            <div
+              key={pIdx}
+              className={`p-2 rounded-xl border text-[11px] transition-all ${
+                isTarget 
+                  ? 'bg-gradient-to-r from-[#FC7133]/25 to-[#F9D440]/15 border-[#FC7133]/60 text-white shadow-[0_0_12px_rgba(252,113,51,0.3)] ring-1 ring-[#FC7133]/50' 
+                  : 'bg-black/40 border-white/10 text-slate-300 hover:border-white/20'
+              }`}
+            >
+              <div className="flex items-center justify-between gap-1 mb-1">
+                <span className="font-bold text-[10.5px] flex items-center gap-1.5">
+                  <span>{intakeIcon}</span>
+                  <span className={isTarget ? 'text-[#FC7133] font-black' : 'text-slate-300'}>{intakeLabel}</span>
+                </span>
+                {isTarget && (
+                  <span className="text-[8.5px] font-black uppercase px-1.5 py-0.5 bg-[#FC7133] text-black rounded font-mono shadow-sm">
+                    TARGET
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center justify-between text-[11px] bg-black/30 px-2 py-1 rounded-lg border border-white/5">
+                <span className="text-slate-400 text-[10px] uppercase font-bold tracking-wider">Deadline:</span>
+                <span className={`font-black whitespace-nowrap ${isTarget ? 'text-[#F9D440]' : isAsap ? 'text-amber-400' : 'text-rose-400'}`}>
+                  {isAsap ? '⚡ ASAP (Apply Now)' : rawDate}
+                </span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  // Single date or date range format (e.g. 'Dec 15 - Jan 15')
+  return (
+    <div className="inline-flex flex-col p-2 rounded-xl bg-black/40 border border-white/10 text-[11px] min-w-[140px] shadow-sm">
+      <span className="text-[9.5px] font-bold text-slate-400 uppercase tracking-wider mb-0.5 flex items-center gap-1">
+        📅 Application Window
+      </span>
+      <span className="font-black text-rose-400 text-xs">
+        {deadlineStr}
+      </span>
+    </div>
+  );
+}
+
 export default function Home() {
   const [activeTab, setActiveTab] = useState<"dashboard" | "analyzer" | "roster" | "settings">("analyzer");
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [settingsTab, setSettingsTab] = useState<"users" | "security" | "preferences" | "database">("users");
+  
+  // Real-time Currency Conversion & View State
+  const [currencyView, setCurrencyView] = useState<string>("NATIVE");
+  const [fxRates, setFxRates] = useState<Record<string, number>>(FALLBACK_FX_RATES);
+  const [fxLiveUpdated, setFxLiveUpdated] = useState<boolean>(false);
+
+  useEffect(() => {
+    // 1. Fetch from Next.js server route
+    fetch('/api/currency')
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
+      .then(data => {
+        if (data?.rates && data.rates.INR) {
+          setFxRates(data.rates);
+          setFxLiveUpdated(true);
+        }
+      })
+      .catch(err => {
+        console.warn('[FX] Server currency route unavailable, trying direct client fetch...', err);
+        // 2. Direct browser fallback to open.er-api.com
+        fetch('https://open.er-api.com/v6/latest/USD')
+          .then(res => res.json())
+          .then(data => {
+            if (data?.rates && data.rates.INR) {
+              setFxRates(prev => ({ ...prev, ...data.rates }));
+              setFxLiveUpdated(true);
+            }
+          })
+          .catch(() => {
+            // 3. Direct browser fallback to Cloudflare Pages CDN
+            fetch('https://latest.currency-api.pages.dev/v1/currencies/usd.json')
+              .then(res => res.json())
+              .then(data => {
+                if (data?.usd) {
+                  const upper: Record<string, number> = {};
+                  for (const [k, v] of Object.entries(data.usd)) upper[k.toUpperCase()] = v as number;
+                  setFxRates(prev => ({ ...prev, ...upper }));
+                  setFxLiveUpdated(true);
+                }
+              })
+              .catch(() => {
+                console.warn('[FX] All live FX providers unreachable. Running on offline 2026 market rates.');
+              });
+          });
+      });
+  }, []);
   
   const [inputType, setInputType] = useState<"pdf" | "text">("pdf");
   const [file, setFile] = useState<File | null>(null);
@@ -1274,20 +1533,48 @@ export default function Home() {
                       </span>
                     </h4>
                     
-                    {/* Admissions Legend */}
-                    <div className="flex flex-wrap items-center gap-4 mb-6 bg-black/20 px-4 py-3 rounded-xl border border-white/5">
-                      <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Match Legend:</span>
-                      <div className="flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)]"></span>
-                        <span className="text-[10px] text-slate-400"><strong className="text-slate-300">Safety</strong> (Highly likely)</span>
+                    {/* Admissions Legend & Live Currency Converter */}
+                    <div className="flex flex-wrap items-center justify-between gap-4 mb-6 bg-black/30 px-4 py-3 rounded-xl border border-white/10">
+                      <div className="flex flex-wrap items-center gap-4">
+                        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Match Legend:</span>
+                        <div className="flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)]"></span>
+                          <span className="text-[10px] text-slate-400"><strong className="text-slate-300">Safety</strong> (Likely)</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.5)]"></span>
+                          <span className="text-[10px] text-slate-400"><strong className="text-slate-300">Target</strong> (Match)</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-rose-400 shadow-[0_0_8px_rgba(251,113,133,0.5)]"></span>
+                          <span className="text-[10px] text-slate-400"><strong className="text-slate-300">Reach</strong> (Stretch)</span>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.5)]"></span>
-                        <span className="text-[10px] text-slate-400"><strong className="text-slate-300">Target</strong> (Perfect match)</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-rose-400 shadow-[0_0_8px_rgba(251,113,133,0.5)]"></span>
-                        <span className="text-[10px] text-slate-400"><strong className="text-slate-300">Reach</strong> (Competitive stretch)</span>
+
+                      {/* Real-Time Live Currency Switcher */}
+                      <div className="flex flex-wrap items-center gap-2.5 bg-[#1A1A1D] border border-white/15 px-3.5 py-1.5 rounded-xl shadow-sm">
+                        <span className="text-[11px] font-bold text-slate-300 flex items-center gap-1.5">
+                          <DollarSign className="w-3.5 h-3.5 text-[#FC7133]" /> Live Currency:
+                        </span>
+                        <select
+                          value={currencyView}
+                          onChange={(e) => setCurrencyView(e.target.value)}
+                          className="bg-black/80 border border-white/20 text-xs font-bold text-emerald-400 rounded-lg px-2.5 py-1 outline-none focus:border-[#FC7133] transition-colors cursor-pointer"
+                          title="Convert all university tuition fees in real-time"
+                        >
+                          <option value="NATIVE">Native Currency (with Live ₹ INR)</option>
+                          <option value="INR">🇮🇳 INR ₹ (Lakhs)</option>
+                          <option value="USD">🇺🇸 USD ($)</option>
+                          <option value="EUR">🇪🇺 EUR (€)</option>
+                          <option value="GBP">🇬🇧 GBP (£)</option>
+                          <option value="CAD">🇨🇦 CAD (CA$)</option>
+                          <option value="AUD">🇦🇺 AUD (AU$)</option>
+                        </select>
+                        <div className="flex items-center gap-1.5 pl-2.5 border-l border-white/15 text-[10.5px] font-mono font-bold text-emerald-400/90">
+                          <span className={`w-2 h-2 rounded-full ${fxLiveUpdated ? 'bg-emerald-400 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.8)]' : 'bg-amber-400'}`} />
+                          <span>1 USD = ₹{(fxRates.INR || 94.90).toFixed(1)}</span>
+                          <span className="text-[9px] text-slate-400 font-sans font-medium hidden sm:inline">(Live Market)</span>
+                        </div>
                       </div>
                     </div>
                     
@@ -1352,10 +1639,23 @@ export default function Home() {
                                     </span>
                                   </td>
                                   <td className="p-4 text-sm font-medium text-slate-300">
-                                    {new Intl.NumberFormat('en-US', { style: 'currency', currency: uni.currency || 'USD', maximumFractionDigits: 0 }).format(uni.tuition)}
-                                    <span className="block text-[10px] font-bold text-emerald-400 mt-0.5">{uni.tuitionConverted?.replace(/[()]/g, '')}</span>
+                                    {(() => {
+                                      const feeInfo = formatTuitionDisplay(uni, currencyView, fxRates);
+                                      return (
+                                        <div>
+                                          <span className="font-bold text-white block">{feeInfo.primary}</span>
+                                          {feeInfo.secondary && (
+                                            <span className="block text-[10.5px] font-bold text-emerald-400 mt-0.5">
+                                              {feeInfo.secondary}
+                                            </span>
+                                          )}
+                                        </div>
+                                      );
+                                    })()}
                                   </td>
-                                  <td className="p-4 text-xs text-rose-300 font-bold">{uni.applicationDeadline}</td>
+                                  <td className="p-4">
+                                    {renderDeadlinePills(uni.applicationDeadline, res.studentDetails?.targetIntake || intake)}
+                                  </td>
                                   <td className="p-4 text-sm font-bold text-slate-300">{uni.acceptanceRate}</td>
                                   <td className="p-4 text-sm font-black text-[#F9D440] text-center">{uni.minCgpa.toFixed(1)}</td>
                                 </tr>
