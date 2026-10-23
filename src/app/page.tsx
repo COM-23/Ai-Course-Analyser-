@@ -1116,8 +1116,8 @@ export default function Home() {
       </div>
 
       {/* Global Sidebar */}
-      <aside className="relative z-20 w-[260px] bg-[#0A0A0B]/90 backdrop-blur-3xl border-r border-white/5 flex flex-col hidden lg:flex shrink-0">
-        <div className="p-8 border-b border-white/5 flex items-center justify-between">
+      <aside className="relative z-20 w-[240px] xl:w-[260px] bg-[#0A0A0B]/90 backdrop-blur-3xl border-r border-white/5 flex flex-col hidden lg:flex shrink-0">
+        <div className="p-5 xl:p-8 border-b border-white/5 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#FC7133] via-[#F9D440] to-[#7DC1B1] p-px shadow-lg shadow-[#FC7133]/20 shrink-0">
               <div className="w-full h-full bg-[#111113] rounded-xl flex items-center justify-center p-2">
@@ -1141,7 +1141,7 @@ export default function Home() {
           </button>
         </div>
 
-        <div className="flex-1 py-8 px-4 flex flex-col gap-2">
+        <div className="flex-1 py-5 xl:py-8 px-3 xl:px-4 flex flex-col gap-1.5 xl:gap-2">
            <button 
              onClick={() => setActiveTab("dashboard")}
              className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${activeTab === 'dashboard' ? 'bg-[#FC7133]/15 text-[#FC7133] border border-[#FC7133]/30 shadow-inner' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}>
@@ -1190,12 +1190,12 @@ export default function Home() {
       </aside>
 
       {/* Main Content Area */}
-      <main className="relative z-10 flex-1 flex flex-col h-screen overflow-hidden px-4 lg:px-8 py-8">
+      <main className="relative z-10 flex-1 flex flex-col h-screen overflow-hidden px-3 sm:px-4 lg:px-6 xl:px-8 py-3 sm:py-4 lg:py-6 xl:py-8">
         
         {activeTab === "analyzer" && (
           <>
             {/* Header */}
-        <header className="flex items-center justify-between mb-8 shrink-0">
+        <header className="flex items-center justify-between mb-4 lg:mb-6 xl:mb-8 shrink-0">
           <div>
             <h1 className="text-3xl font-black bg-gradient-to-r from-white to-slate-400 bg-clip-text text-transparent">
               AI Analyzer
@@ -1220,13 +1220,13 @@ export default function Home() {
         </header>
 
         {/* Main Interface Layout */}
-        <div className="flex-1 flex gap-6 min-h-0">
+        <div className="flex-1 flex gap-4 xl:gap-6 min-h-0">
           
           {/* Left Panel: Input & Controls */}
-          {!compareMode && (<div className="w-full lg:w-[40%] flex flex-col gap-6">
+          {!compareMode && (<div className="w-full lg:w-[38%] xl:w-[40%] flex flex-col gap-4 xl:gap-6">
             
             {/* Input Selection Card */}
-            <div className="bg-[#111113]/80 backdrop-blur-xl border border-white/5 rounded-3xl p-6 shadow-2xl flex flex-col min-h-0 flex-1">
+            <div className="bg-[#111113]/80 backdrop-blur-xl border border-white/5 rounded-3xl p-4 sm:p-5 xl:p-6 shadow-2xl flex flex-col min-h-0 flex-1">
               
               {/* Tabs */}
               <div className="flex p-1.5 bg-[#0a0a0c] border border-white/5 rounded-[1.25rem] mb-6 shadow-inner relative z-10">
@@ -1352,10 +1352,10 @@ export default function Home() {
           )} {/* End Left Panel */}
 
           {/* Right Panel: Intelligence Output */}
-          <div className={`w-full ${compareMode ? "lg:w-full" : "lg:w-[60%]"} bg-[#111113]/80 backdrop-blur-xl border border-white/5 rounded-3xl shadow-2xl overflow-hidden flex flex-col h-full relative`}>
+          <div className={`w-full ${compareMode ? "lg:w-full" : "lg:w-[62%] xl:w-[60%]"} bg-[#111113]/80 backdrop-blur-xl border border-white/5 rounded-3xl shadow-2xl overflow-hidden flex flex-col h-full relative`}>
             
             {/* Header */}
-            <div className="px-8 py-6 border-b border-white/5 bg-black/20 flex justify-between items-center z-10">
+            <div className="px-5 xl:px-8 py-4 xl:py-6 border-b border-white/5 bg-black/20 flex justify-between items-center z-10">
               <h3 className="text-lg font-black text-white flex items-center gap-3">
                 <div className="w-8 h-8 rounded-full bg-[#FC7133]/15 flex items-center justify-center border border-[#FC7133]/30">
                   <BarChart className="w-4 h-4 text-[#FC7133]" />
@@ -1386,7 +1386,7 @@ export default function Home() {
               )}
             </div>
 
-            <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6 xl:p-8 custom-scrollbar">
 
               {compareMode && compareResults.length === 0 && (
                 <div className="w-full p-6 border border-[#FC7133]/30 rounded-2xl bg-[#FC7133]/5 mb-8 animate-in fade-in duration-300">
