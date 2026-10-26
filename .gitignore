@@ -61,5 +61,7 @@ programs.raw.csv
 *.csv.bak
 *.zip
 local-update-pack/
+.tunnel-status.json
+aitunnel*.log
 
 

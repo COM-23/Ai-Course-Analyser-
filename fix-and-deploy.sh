@@ -59,11 +59,14 @@ ssh "$SERVER" bash << 'REMOTE'
   echo "  -> Building app with Webpack..."
   npm run build
 
-  echo "  -> Starting fresh PM2 process on port 3004..."
+  echo "  -> Starting fresh PM2 processes for Web App and AI Tunnel..."
   pm2 delete LearnOverseas 2>/dev/null || true
+  pm2 delete LearnOverseasAI 2>/dev/null || true
   pm2 flush 2>/dev/null || true
   pm2 start npm --name LearnOverseas --cwd /home/admin_learn_overseas/ai-course-analyser -- start -- -p 3004 -H 0.0.0.0
+  pm2 start tunnel-service.js --name LearnOverseasAI --cwd /home/admin_learn_overseas/ai-course-analyser
   pm2 save 2>/dev/null || true
+  pm2 startup 2>/dev/null || true
 
   echo "  -> Waiting 10 seconds for server to initialize..."
   sleep 10

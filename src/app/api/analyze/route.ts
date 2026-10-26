@@ -1257,16 +1257,45 @@ Counselor AI Summary:`;
             );
 
             // Cloud Serverless Fallback Defaults (Ensures Cloud Netlify connects even if UI env vars are not filled)
-            const cloudDefaultEndpoint = 'https://headline-alive-subsidiaries-merge.trycloudflare.com/api/generate';
+            const cloudDefaultEndpoint = 'https://blink-competitions-colon-december.trycloudflare.com/api/generate';
             const cloudDefaultApiKey = 'lo_live_qDYoGoQFKz7bM35ijtVa-9BwznoFZhqO';
 
             let aiEndpoint = (process.env.LOCAL_AI_ENDPOINT || '').trim();
             let aiApiKey = (process.env.LOCAL_AI_API_KEY || '').trim();
             const aiModel = process.env.LOCAL_AI_MODEL || 'llama3.1';
 
+            // Check if Super Admin configured an AI endpoint in UI Settings table
+            try {
+                const settingRow = getDb().prepare("SELECT value FROM settings WHERE id = 'aiEndpoint'").get() as any;
+                if (settingRow && settingRow.value) {
+                    const parsed = JSON.parse(settingRow.value);
+                    if (typeof parsed === 'string' && parsed.trim()) {
+                        aiEndpoint = parsed.trim();
+                        if (!aiEndpoint.endsWith('/api/generate')) {
+                            aiEndpoint = aiEndpoint.replace(/\/+$/, '') + '/api/generate';
+                        }
+                    }
+                }
+            } catch (e) {}
+
+            // Check if local .tunnel-status.json exists
+            if (!aiEndpoint || aiEndpoint.includes('headline-alive')) {
+                try {
+                    const nodeFs = require('fs');
+                    const nodePath = require('path');
+                    const statusPath = nodePath.resolve(process.cwd(), '.tunnel-status.json');
+                    if (nodeFs.existsSync(statusPath)) {
+                        const statusData = JSON.parse(nodeFs.readFileSync(statusPath, 'utf-8'));
+                        if (statusData && statusData.endpoint) {
+                            aiEndpoint = statusData.endpoint;
+                        }
+                    }
+                } catch (e) {}
+            }
+
             if (isCloudEnv) {
                 // In Cloud: LAN IP (192.168.x / localhost / 127.0.0.1) is physically unreachable from AWS/Netlify
-                if (!aiEndpoint || aiEndpoint.includes('192.168.') || aiEndpoint.includes('127.0.0.1') || aiEndpoint.includes('localhost')) {
+                if (!aiEndpoint || aiEndpoint.includes('192.168.') || aiEndpoint.includes('127.0.0.1') || aiEndpoint.includes('localhost') || aiEndpoint.includes('headline-alive')) {
                     aiEndpoint = cloudDefaultEndpoint;
                 }
                 if (!aiApiKey) {

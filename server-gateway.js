@@ -57,6 +57,12 @@ const server = http.createServer((req, res) => {
     return res.end();
   }
 
+  // Public lightweight health/ping endpoint for Keep-Alive daemon
+  if (req.url === '/ping' || req.url === '/healthz') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify({ status: 'ok', gateway: true, timestamp: Date.now() }));
+  }
+
   // 1. Validate API Key
   const authHeader = req.headers['authorization'] || '';
   const apiKeyHeader = req.headers['x-api-key'] || '';
@@ -74,32 +80,50 @@ const server = http.createServer((req, res) => {
     }));
   }
 
-  // 2. Forward authorized request to local Ollama
-  const options = {
-    hostname: OLLAMA_HOST,
-    port: OLLAMA_PORT,
-    path: req.url,
-    method: req.method,
-    headers: {
-      ...req.headers,
-      host: `${OLLAMA_HOST}:${OLLAMA_PORT}`
-    }
-  };
+  // 2. Forward authorized request to Ollama (primary host with fallback to LAN)
+  const candidateHosts = [
+    OLLAMA_HOST,
+    OLLAMA_HOST !== '127.0.0.1' ? '127.0.0.1' : null,
+    OLLAMA_HOST !== '192.168.0.66' ? '192.168.0.66' : null
+  ].filter(Boolean);
 
-  const proxyReq = http.request(options, (proxyRes) => {
-    res.writeHead(proxyRes.statusCode, proxyRes.headers);
-    proxyRes.pipe(res, { end: true });
-  });
+  let currentHostIndex = 0;
 
-  proxyReq.on('error', (err) => {
-    console.error('[Gateway Error] Failed to reach local Ollama:', err.message);
-    if (!res.headersSent) {
-      res.writeHead(502, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Bad Gateway', message: 'Local Ollama is offline or unreachable' }));
-    }
-  });
+  function forwardToHost(targetHost) {
+    const options = {
+      hostname: targetHost,
+      port: OLLAMA_PORT,
+      path: req.url,
+      method: req.method,
+      headers: {
+        ...req.headers,
+        host: `${targetHost}:${OLLAMA_PORT}`
+      }
+    };
 
-  req.pipe(proxyReq, { end: true });
+    const proxyReq = http.request(options, (proxyRes) => {
+      res.writeHead(proxyRes.statusCode, proxyRes.headers);
+      proxyRes.pipe(res, { end: true });
+    });
+
+    proxyReq.on('error', (err) => {
+      console.warn(`[Gateway Notice] Failed to reach Ollama at ${targetHost}:${OLLAMA_PORT}: ${err.message}`);
+      currentHostIndex++;
+      if (currentHostIndex < candidateHosts.length) {
+        console.log(`[Gateway] Retrying with candidate host: ${candidateHosts[currentHostIndex]}`);
+        forwardToHost(candidateHosts[currentHostIndex]);
+      } else {
+        if (!res.headersSent) {
+          res.writeHead(502, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Bad Gateway', message: 'Local Ollama instances unreachable on localhost and LAN.' }));
+        }
+      }
+    });
+
+    req.pipe(proxyReq, { end: true });
+  }
+
+  forwardToHost(candidateHosts[0]);
 });
 
 server.listen(PORT, '0.0.0.0', () => {

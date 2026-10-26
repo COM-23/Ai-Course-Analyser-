@@ -11,14 +11,43 @@ export async function GET() {
     (typeof process.cwd === 'function' && process.cwd().startsWith('/var/task'))
   );
 
-  const cloudDefaultEndpoint = 'https://headline-alive-subsidiaries-merge.trycloudflare.com/api/generate';
+  const cloudDefaultEndpoint = 'https://blink-competitions-colon-december.trycloudflare.com/api/generate';
   const cloudDefaultApiKey = 'lo_live_qDYoGoQFKz7bM35ijtVa-9BwznoFZhqO';
 
   let configuredEndpoint = (process.env.LOCAL_AI_ENDPOINT || '').trim();
   let configuredApiKey = (process.env.LOCAL_AI_API_KEY || '').trim();
 
+  // Check if Super Admin configured an AI endpoint in UI Settings table
+  try {
+    const settingRow = getDb().prepare("SELECT value FROM settings WHERE id = 'aiEndpoint'").get() as any;
+    if (settingRow && settingRow.value) {
+      const parsed = JSON.parse(settingRow.value);
+      if (typeof parsed === 'string' && parsed.trim()) {
+        configuredEndpoint = parsed.trim();
+        if (!configuredEndpoint.endsWith('/api/generate')) {
+          configuredEndpoint = configuredEndpoint.replace(/\/+$/, '') + '/api/generate';
+        }
+      }
+    }
+  } catch (e) {}
+
+  // Check if local .tunnel-status.json exists
+  if (!configuredEndpoint || configuredEndpoint.includes('headline-alive')) {
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      const statusPath = path.resolve(process.cwd(), '.tunnel-status.json');
+      if (fs.existsSync(statusPath)) {
+        const statusData = JSON.parse(fs.readFileSync(statusPath, 'utf-8'));
+        if (statusData && statusData.endpoint) {
+          configuredEndpoint = statusData.endpoint;
+        }
+      }
+    } catch (e) {}
+  }
+
   if (isCloudEnv) {
-    if (!configuredEndpoint || configuredEndpoint.includes('192.168.') || configuredEndpoint.includes('127.0.0.1') || configuredEndpoint.includes('localhost')) {
+    if (!configuredEndpoint || configuredEndpoint.includes('192.168.') || configuredEndpoint.includes('127.0.0.1') || configuredEndpoint.includes('localhost') || configuredEndpoint.includes('headline-alive')) {
       configuredEndpoint = cloudDefaultEndpoint;
     }
     if (!configuredApiKey) {

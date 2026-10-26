@@ -38,7 +38,8 @@ import {
   ExternalLink,
   DollarSign,
   Calendar,
-  Coins
+  Coins,
+  RefreshCw
 } from "lucide-react";
 import * as htmlToImage from 'html-to-image';
 import { jsPDF } from 'jspdf';
@@ -483,6 +484,25 @@ export default function Home() {
   
   const [agencyName, setAgencyName] = useState("Learn Overseas");
   const [aiStrictness, setAiStrictness] = useState("standard");
+  const [customAiEndpoint, setCustomAiEndpoint] = useState("");
+  const [aiHealthStatus, setAiHealthStatus] = useState<any>(null);
+  const [isCheckingAi, setIsCheckingAi] = useState(false);
+
+  const checkAiHealth = async () => {
+    setIsCheckingAi(true);
+    try {
+      const res = await fetch('/api/health');
+      const data = await res.json();
+      setAiHealthStatus(data?.aiServer);
+      if (data?.aiServer?.endpoint && !customAiEndpoint) {
+        setCustomAiEndpoint(data.aiServer.endpoint);
+      }
+    } catch (e: any) {
+      setAiHealthStatus({ status: 'unreachable', error: e?.message });
+    } finally {
+      setIsCheckingAi(false);
+    }
+  };
 
   const reportRef = useRef<HTMLDivElement>(null);
   const exportRef = useRef<HTMLDivElement>(null);
@@ -596,9 +616,13 @@ export default function Home() {
           
           if (data.agencyName) setAgencyName(data.agencyName);
           if (data.aiStrictness) setAiStrictness(data.aiStrictness);
+          if (data.aiEndpoint) setCustomAiEndpoint(data.aiEndpoint);
         }
       })
       .catch(err => console.error('Error fetching settings:', err));
+
+    // Perform background health check
+    checkAiHealth();
   }, [currentUser]);
 
   const saveSettings = async (payload: any) => {
@@ -2494,9 +2518,40 @@ export default function Home() {
                       {/* Config or Password Reset */}
                       {currentUser?.role === 'super_admin' ? (
                         <div className="bg-[#18181B] border border-white/10 rounded-2xl p-8 space-y-6 hover:border-[#FC7133]/30 transition-colors shadow-lg">
-                          <h3 className="text-lg font-black text-[#FC7133] mb-2 flex items-center gap-3">
-                            <BrainCircuit className="w-5 h-5" /> AI Configuration
-                          </h3>
+                          <div className="flex items-center justify-between">
+                            <h3 className="text-lg font-black text-[#FC7133] flex items-center gap-3">
+                              <BrainCircuit className="w-5 h-5" /> AI Configuration & Tunnel
+                            </h3>
+                            <button
+                              type="button"
+                              onClick={checkAiHealth}
+                              disabled={isCheckingAi}
+                              className="text-xs px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10 transition-colors flex items-center gap-1.5"
+                            >
+                              <RefreshCw className={`w-3.5 h-3.5 ${isCheckingAi ? 'animate-spin' : ''}`} />
+                              {isCheckingAi ? 'Testing...' : 'Test Connection'}
+                            </button>
+                          </div>
+
+                          {/* Live AI Status Pill */}
+                          <div className="p-3.5 rounded-xl border bg-[#0A0A0B]/80 flex items-center justify-between">
+                            <div className="flex items-center gap-2.5">
+                              <span className={`w-2.5 h-2.5 rounded-full ${aiHealthStatus?.status === 'connected' ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`} />
+                              <div>
+                                <p className="text-xs font-bold text-slate-200">
+                                  {aiHealthStatus?.status === 'connected'
+                                    ? `AI Engine Connected (${aiHealthStatus.model || 'llama3.1'})`
+                                    : 'AI Engine Offline / Disconnected'}
+                                </p>
+                                <p className="text-[11px] text-slate-500 truncate max-w-xs md:max-w-md">
+                                  {aiHealthStatus?.endpoint || 'No active tunnel endpoint detected'}
+                                </p>
+                              </div>
+                            </div>
+                            <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${aiHealthStatus?.status === 'connected' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'}`}>
+                              {aiHealthStatus?.status === 'connected' ? 'ONLINE' : 'OFFLINE'}
+                            </span>
+                          </div>
                           
                           <div className="space-y-2">
                             <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Analysis Strictness</label>
@@ -2514,7 +2569,21 @@ export default function Home() {
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                               </svg>
                             </div>
-                            <p className="text-xs text-slate-500 mt-2">Controls how aggressively the AI filters universities based on student profiles and acceptance rates.</p>
+                            <p className="text-xs text-slate-500 mt-1">Controls how aggressively the AI filters universities based on student profiles and acceptance rates.</p>
+                          </div>
+
+                          <div className="space-y-2 pt-2 border-t border-white/5">
+                            <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Cloud AI Endpoint (Tunnel URL)</label>
+                            <input
+                              type="text"
+                              value={customAiEndpoint}
+                              onChange={(e) => setCustomAiEndpoint(e.target.value)}
+                              placeholder="https://your-tunnel.trycloudflare.com/api/generate"
+                              className="w-full px-4 py-3 bg-[#0A0A0B] border border-white/10 rounded-xl text-sm text-slate-200 outline-none focus:border-[#FC7133]/50 shadow-inner font-mono text-xs"
+                            />
+                            <p className="text-xs text-slate-500 mt-1">
+                              Auto-managed by <code>tunnel-service.js</code>. You can also paste a permanent Cloudflare Named Tunnel or Ngrok domain here anytime.
+                            </p>
                           </div>
                         </div>
                       ) : (
@@ -2542,7 +2611,7 @@ export default function Home() {
                     {currentUser?.role === 'super_admin' && (
                       <div className="pt-2 max-w-4xl flex justify-end">
                         <button 
-                          onClick={() => saveSettings({ agencyName, aiStrictness })}
+                          onClick={() => saveSettings({ agencyName, aiStrictness, aiEndpoint: customAiEndpoint })}
                           className="px-6 py-2.5 bg-[#FC7133] hover:bg-[#e65d20] text-white font-bold rounded-xl text-sm transition-colors shadow-lg shadow-[#FC7133]/25"
                         >
                           Save Preferences
