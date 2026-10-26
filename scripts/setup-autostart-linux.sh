@@ -14,7 +14,15 @@ echo "Node binary:       $NODE_BIN"
 echo "User:              $USER_NAME"
 echo ""
 
-# 1. Enable Ollama service on boot
+# 1. Ensure cloudflared is installed
+if ! command -v cloudflared >/dev/null 2>&1; then
+    echo "-> Installing cloudflared binary on Linux..."
+    curl -L -s --output /tmp/cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+    sudo dpkg -i /tmp/cloudflared.deb 2>/dev/null || sudo apt-get install -f -y 2>/dev/null || true
+    rm -f /tmp/cloudflared.deb
+fi
+
+# 2. Enable Ollama service on boot
 if command -v systemctl >/dev/null 2>&1; then
     echo "-> Ensuring Ollama auto-starts on boot..."
     sudo systemctl enable ollama 2>/dev/null || true
