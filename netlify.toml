@@ -4,12 +4,12 @@
 [build.environment]
   NODE_VERSION = "20"
   SECRETS_SCAN_ENABLED = "false"
-  LOCAL_AI_ENDPOINT = "https://blink-competitions-colon-december.trycloudflare.com/api/generate"
+  LOCAL_AI_ENDPOINT = "https://entrepreneurs-psp-navigate-maternity.trycloudflare.com/api/generate"
   LOCAL_AI_API_KEY = "lo_live_qDYoGoQFKz7bM35ijtVa-9BwznoFZhqO"
   LOCAL_AI_MODEL = "llama3.1"
 
 [context.production.environment]
-  LOCAL_AI_ENDPOINT = "https://blink-competitions-colon-december.trycloudflare.com/api/generate"
+  LOCAL_AI_ENDPOINT = "https://entrepreneurs-psp-navigate-maternity.trycloudflare.com/api/generate"
   LOCAL_AI_API_KEY = "lo_live_qDYoGoQFKz7bM35ijtVa-9BwznoFZhqO"
   LOCAL_AI_MODEL = "llama3.1"
 

@@ -1257,7 +1257,7 @@ Counselor AI Summary:`;
             );
 
             // Cloud Serverless Fallback Defaults (Ensures Cloud Netlify connects even if UI env vars are not filled)
-            const cloudDefaultEndpoint = 'https://blink-competitions-colon-december.trycloudflare.com/api/generate';
+            const cloudDefaultEndpoint = 'https://entrepreneurs-psp-navigate-maternity.trycloudflare.com/api/generate';
             const cloudDefaultApiKey = 'lo_live_qDYoGoQFKz7bM35ijtVa-9BwznoFZhqO';
 
             let aiEndpoint = (process.env.LOCAL_AI_ENDPOINT || '').trim();

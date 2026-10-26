@@ -11,7 +11,7 @@ export async function GET() {
     (typeof process.cwd === 'function' && process.cwd().startsWith('/var/task'))
   );
 
-  const cloudDefaultEndpoint = 'https://blink-competitions-colon-december.trycloudflare.com/api/generate';
+  const cloudDefaultEndpoint = 'https://entrepreneurs-psp-navigate-maternity.trycloudflare.com/api/generate';
   const cloudDefaultApiKey = 'lo_live_qDYoGoQFKz7bM35ijtVa-9BwznoFZhqO';
 
   let configuredEndpoint = (process.env.LOCAL_AI_ENDPOINT || '').trim();
