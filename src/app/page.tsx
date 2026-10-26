@@ -785,11 +785,21 @@ export default function Home() {
         existingColleges: appendMode && result ? result.recommendedColleges : undefined
       };
 
-      const res = await fetch("/api/analyze", {
+      let res = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
+
+      if (!res.ok && (res.status === 502 || res.status === 504)) {
+        // Transparent auto-retry after 1.2s for transient serverless cold starts
+        await new Promise(r => setTimeout(r, 1200));
+        res = await fetch("/api/analyze", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+      }
 
       if (!res.ok) {
         const errText = await res.text();
@@ -871,11 +881,20 @@ export default function Home() {
           compareCountryIndex: i,
           totalCompareCountries: compareCountries.length,
         };
-        const res = await fetch("/api/analyze", {
+        let res = await fetch("/api/analyze", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
+        if (!res.ok && (res.status === 502 || res.status === 504)) {
+          // Transparent auto-retry after 1.2s for transient serverless cold starts
+          await new Promise(r => setTimeout(r, 1200));
+          res = await fetch("/api/analyze", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+        }
         if (!res.ok) {
           const errText = await res.text();
           let errMsg = `Analysis failed for ${country} (${res.status})`;

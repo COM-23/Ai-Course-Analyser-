@@ -284,6 +284,15 @@ class LocalHeuristicBrain {
   }
 
   async analyze(text: string, context: string, manualCountry: string, manualIntake: string, aiStrictness: string = "standard") {
+    // Strictly identify real cloud serverless environments (Netlify / Vercel / AWS Lambda)
+    const isCloudEnv = !!(
+      process.env.NETLIFY ||
+      process.env.VERCEL ||
+      process.env.AWS_LAMBDA_FUNCTION_NAME ||
+      process.env.LAMBDA_TASK_ROOT ||
+      (typeof process.cwd === 'function' && process.cwd().startsWith('/var/task'))
+    );
+
     // Always prefix the manually entered context (budget) with "Budget:" so the regex engine reliably finds it
     const labelledContext = context ? `Budget: ${context.trim()}` : "";
     const rawData = text + " " + labelledContext;
@@ -978,13 +987,16 @@ class LocalHeuristicBrain {
       }
       
       // INJECT LIVE WEB SCRAPED COLLEGES
-      if (eligibleColleges.length > 0 || !activeBacklogs || activeBacklogs <= 0 || extractedBacklogs.includes("Cleared")) {
+      // In cloud serverless environments (Netlify), avoid slow external web scraping if DB already contains 5+ eligible colleges to guarantee responses under timeout limits
+      const shouldScrape = isCloudEnv ? (eligibleColleges.length < 5) : true;
+      if (shouldScrape && (eligibleColleges.length > 0 || !activeBacklogs || activeBacklogs <= 0 || extractedBacklogs.includes("Cleared"))) {
           const liveScraped = await scrapeLiveUniversities(primaryDomain, destinationCountry, degreeObjective);
           eligibleColleges = [...liveScraped, ...eligibleColleges];
       }
     } else {
       // If no specific country is selected, still pull a few live global ones for variety
-      if (!activeBacklogs || activeBacklogs <= 0 || extractedBacklogs.includes("Cleared")) {
+      const shouldScrape = isCloudEnv ? (eligibleColleges.length < 5) : true;
+      if (shouldScrape && (!activeBacklogs || activeBacklogs <= 0 || extractedBacklogs.includes("Cleared"))) {
           const liveScraped = await scrapeLiveUniversities(primaryDomain, "USA", degreeObjective); // default to USA search
           eligibleColleges = [...liveScraped, ...eligibleColleges];
       }
@@ -1306,17 +1318,15 @@ Counselor AI Summary:`;
                 return clean;
             }
 
-            const candidateEndpoints = [
-                normalize(aiEndpoint),
-                normalize(cloudDefaultEndpoint),
-                'http://192.168.0.66:11434/api/generate',
-                'http://127.0.0.1:11434/api/generate'
-            ].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
+            const candidateEndpoints = (isCloudEnv
+                ? [normalize(aiEndpoint), normalize(cloudDefaultEndpoint)]
+                : [normalize(aiEndpoint), normalize(cloudDefaultEndpoint), 'http://192.168.0.66:11434/api/generate', 'http://127.0.0.1:11434/api/generate']
+            ).filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
 
-            // Cap at 24s in cloud serverless to fit comfortably within Netlify's 26s execution ceiling.
+            // Cap at 6s in cloud serverless so it cleanly falls back to instant structured counselor engine well before Netlify's 10s ceiling.
             // On local on-premise servers (Windows / Mac / Linux), allow 90 seconds.
-            const timeoutMs = isCloudEnv ? 24000 : 90000;
-            const tokenLimit = isCloudEnv ? 80 : 120;
+            const timeoutMs = isCloudEnv ? 6000 : 90000;
+            const tokenLimit = isCloudEnv ? 30 : 120;
 
             let ollamaResponse: Response | null = null;
             let lastAiError: any = null;
