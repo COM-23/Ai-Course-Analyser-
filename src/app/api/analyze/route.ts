@@ -459,33 +459,100 @@ class LocalHeuristicBrain {
     let extractedCgpa = 7.5; // Default average CGPA
     let cgpaDetected = false;
 
-    // Pattern 1: Number BEFORE keyword (e.g. "8.2 cgpa", "8.2/10 cgpa", "7.8 gpa", "9.1 pointer")
-    const beforeMatch = lowerText.match(/(\d+(?:\.\d+)?)\s*(?:\/\s*(\d+(?:\.\d+)?)\s*)?(?:cgpa|cgps|cgp|gpa|pointer|score)\b/i);
+    // Search sources: Prioritize counselor manual input over PDF text
+    const searchSources: { text: string; isCounselor: boolean }[] = [];
+    if (context && context.trim()) {
+      searchSources.push({ text: context, isCounselor: true });
+    }
+    if (text && text.trim()) {
+      searchSources.push({ text: text, isCounselor: false });
+    }
 
-    // Pattern 2: Keyword followed by number on the SAME line (no newline bridging to budgets! e.g. "cgpa: 8.2", "cgpa is 8.2", "gpa: 3.8/4.0")
-    const afterMatch = lowerText.match(/(?:cgpa|cgps|cgp|gpa|pointer|score)[a-z \t]{0,15}(?:of|is|in)?[ \t:=]+(\d+(?:\.\d+)?)(?:[ \t]*\/[ \t]*(\d+(?:\.\d+)?))?/i);
+    interface CgpaCandidate {
+      val: number;
+      scale: number | null;
+      isDegree: boolean;
+      isHighSchool: boolean;
+      isCounselor: boolean;
+    }
 
-    const cgpaMatch = beforeMatch || afterMatch;
+    const allCandidates: CgpaCandidate[] = [];
 
-    if (cgpaMatch && cgpaMatch[1]) {
-      const parsed = parseFloat(cgpaMatch[1]);
-      const scale = cgpaMatch[2] ? parseFloat(cgpaMatch[2]) : null;
+    for (const src of searchSources) {
+      const lines = src.text.split(/[\r\n]+/);
+      for (const rawLine of lines) {
+        const line = rawLine.toLowerCase();
 
-      if (scale === 4 || scale === 4.0) {
-        extractedCgpa = (parsed / 4) * 10;
+        // Identify high school (10th standard, SSC, Matriculation) vs Degree/College
+        const isHighSchool = /\b(10th|class\s*10\b|class\s*x\b|secondary\s*school|matric|ssc\b|high\s*school|xth)\b/i.test(line);
+        const isDegree = /\b(bachelor|b\.?tech|b\.?e\b|b\.?sc|bca\b|bba\b|degree|undergrad|ug\b|graduation|college|university|overall|aggregate|cumulative|final)\b/i.test(line);
+
+        // Explicit CGPA patterns (NEVER include generic "score" which confuses test scores or 10th scores)
+        const regex1 = /(\d+(?:\.\d+)?)\s*(?:\/\s*(\d+(?:\.\d+)?)\s*)?(?:cgpa|cgps|cgp|gpa|pointer)\b/gi;
+        const regex2 = /(?:cgpa|cgps|cgp|gpa|pointer)[a-z \t]{0,15}(?:of|is|in|was)?[ \t:=~-]+(\d+(?:\.\d+)?)(?:[ \t]*\/[ \t]*(\d+(?:\.\d+)?))?/gi;
+
+        let m;
+        while ((m = regex1.exec(line)) !== null) {
+          allCandidates.push({
+            val: parseFloat(m[1]),
+            scale: m[2] ? parseFloat(m[2]) : null,
+            isDegree,
+            isHighSchool,
+            isCounselor: src.isCounselor
+          });
+        }
+        while ((m = regex2.exec(line)) !== null) {
+          allCandidates.push({
+            val: parseFloat(m[1]),
+            scale: m[2] ? parseFloat(m[2]) : null,
+            isDegree,
+            isHighSchool,
+            isCounselor: src.isCounselor
+          });
+        }
+      }
+    }
+
+    function normalizeCgpaVal(c: CgpaCandidate): number {
+      let v = c.val;
+      if (c.scale === 4 || c.scale === 4.0 || (v > 0 && v <= 4.0 && !c.scale)) {
+        v = (v / 4) * 10;
+      } else if (v > 10 && v <= 100) {
+        v = v / 10;
+      }
+      return Math.min(10, Math.max(0, parseFloat(v.toFixed(2))));
+    }
+
+    if (allCandidates.length > 0) {
+      // 1. Priority: Counselor manual input box
+      const counselorCandidate = allCandidates.find(c => c.isCounselor);
+      if (counselorCandidate) {
+        extractedCgpa = normalizeCgpaVal(counselorCandidate);
         cgpaDetected = true;
-      } else if (scale === 10 || scale === 10.0) {
-        extractedCgpa = parsed;
-        cgpaDetected = true;
-      } else if (parsed > 0 && parsed <= 4.0) {
-        extractedCgpa = (parsed / 4) * 10;
-        cgpaDetected = true;
-      } else if (parsed > 10 && parsed <= 100) {
-        extractedCgpa = parsed / 10;
-        cgpaDetected = true;
-      } else if (parsed > 0 && parsed <= 10) {
-        extractedCgpa = parsed;
-        cgpaDetected = true;
+      } else {
+        // 2. Priority: Degree/Bachelor/College candidate (excluding high school)
+        const degreeCandidate = allCandidates.find(c => c.isDegree && !c.isHighSchool);
+        if (degreeCandidate) {
+          extractedCgpa = normalizeCgpaVal(degreeCandidate);
+          cgpaDetected = true;
+        } else {
+          // 3. Priority: Non-highschool candidate with a decimal CGPA (e.g. 5.98, 7.85)
+          const decimalCandidate = allCandidates.find(c => !c.isHighSchool && String(c.val).includes("."));
+          if (decimalCandidate) {
+            extractedCgpa = normalizeCgpaVal(decimalCandidate);
+            cgpaDetected = true;
+          } else {
+            // 4. Priority: Any candidate not marked as high school
+            const nonHighSchool = allCandidates.find(c => !c.isHighSchool);
+            if (nonHighSchool) {
+              extractedCgpa = normalizeCgpaVal(nonHighSchool);
+              cgpaDetected = true;
+            } else {
+              extractedCgpa = normalizeCgpaVal(allCandidates[allCandidates.length - 1]);
+              cgpaDetected = true;
+            }
+          }
+        }
       }
     }
 
@@ -506,37 +573,36 @@ class LocalHeuristicBrain {
       if (percentMatch && percentMatch[1]) {
         const parsed = parseFloat(percentMatch[1]);
         if (parsed > 10 && parsed <= 100) {
-          extractedCgpa = parsed / 10;
+          extractedCgpa = parseFloat((parsed / 10).toFixed(2));
           cgpaDetected = true;
         } else if (parsed > 0 && parsed <= 10) {
-          extractedCgpa = parsed;
+          extractedCgpa = parseFloat(parsed.toFixed(2));
           cgpaDetected = true;
         }
       } else if (percentWordValue > 0) {
-        extractedCgpa = percentWordValue / 10;
+        extractedCgpa = parseFloat((percentWordValue / 10).toFixed(2));
         cgpaDetected = true;
       } else {
         // 2.5 FALLBACK: SLANG DICTIONARY & MATH NUMBER SNIFFER
-        const slangMatch = lowerText.match(/(?:pointer|score|grade|got an?|scored an?)[ \t:=]*([\d\.]+)(?:[ \t]*\/[ \t]*([\d\.]+))?/i);
-        const isolatedDecimalMatch = lowerText.match(/(?:\s|^)([5-9]\.\d|10\.0)(?:\s|$)/); // e.g. " 8.5 "
+        const slangMatch = lowerText.match(/(?:pointer|grade|got an?|scored an?)[ \t:=]*([\d\.]+)(?:[ \t]*\/[ \t]*([\d\.]+))?/i);
+        const isolatedDecimalMatch = lowerText.match(/(?:\s|^)([5-9]\.\d{1,2}|10\.0)(?:\s|$)/);
 
         if (slangMatch && slangMatch[1]) {
           const parsed = parseFloat(slangMatch[1]);
           if (parsed > 0 && parsed <= 4.0) {
-            extractedCgpa = (parsed / 4) * 10;
+            extractedCgpa = parseFloat(((parsed / 4) * 10).toFixed(2));
             cgpaDetected = true;
           } else if (parsed > 4.0 && parsed <= 10.0) {
-            extractedCgpa = parsed;
+            extractedCgpa = parseFloat(parsed.toFixed(2));
             cgpaDetected = true;
           }
         } else if (isolatedDecimalMatch && isolatedDecimalMatch[1]) {
-          // Pure math sniffing fallback
-          extractedCgpa = parseFloat(isolatedDecimalMatch[1]);
+          extractedCgpa = parseFloat(parseFloat(isolatedDecimalMatch[1]).toFixed(2));
           cgpaDetected = true;
         }
       }
     }
-    extractedCgpa = parseFloat(extractedCgpa.toFixed(1));
+    extractedCgpa = parseFloat(extractedCgpa.toFixed(2));
 
     // 3. EXTRACT BUDGET & CURRENCY CONVERSION (Supporting USD, INR, Lakhs)
     let extractedBudget = 50000; // Default budget USD
