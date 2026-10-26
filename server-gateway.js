@@ -63,6 +63,11 @@ const server = http.createServer((req, res) => {
     return res.end(JSON.stringify({ status: 'ok', gateway: true, timestamp: Date.now() }));
   }
 
+  // Rewrite root POST or trailing slash to /api/generate so user endpoint works with or without /api/generate
+  if (req.method === 'POST' && (req.url === '/' || req.url === '')) {
+    req.url = '/api/generate';
+  }
+
   // 1. Validate API Key
   const authHeader = req.headers['authorization'] || '';
   const apiKeyHeader = req.headers['x-api-key'] || '';

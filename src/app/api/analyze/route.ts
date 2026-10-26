@@ -1293,26 +1293,25 @@ Counselor AI Summary:`;
                 } catch (e) {}
             }
 
-            if (isCloudEnv) {
-                // In Cloud: LAN IP (192.168.x / localhost / 127.0.0.1) is physically unreachable from AWS/Netlify
-                if (!aiEndpoint || aiEndpoint.includes('192.168.') || aiEndpoint.includes('127.0.0.1') || aiEndpoint.includes('localhost') || aiEndpoint.includes('headline-alive')) {
-                    aiEndpoint = cloudDefaultEndpoint;
-                }
-                if (!aiApiKey) {
-                    aiApiKey = cloudDefaultApiKey;
-                }
-            } else {
-                // On-premise Windows/Mac local server (100% UNTOUCHED)
-                if (!aiEndpoint) {
-                    aiEndpoint = 'http://192.168.0.66:11434/api/generate';
-                }
+            if (!aiApiKey) {
+                aiApiKey = cloudDefaultApiKey;
             }
 
-            const aiHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
-            if (aiApiKey) {
-                aiHeaders['Authorization'] = `Bearer ${aiApiKey}`;
-                aiHeaders['x-api-key'] = aiApiKey;
+            function normalize(u: string) {
+                if (!u) return '';
+                let clean = u.trim().replace(/\/+$/, '');
+                if (!clean.endsWith('/api/generate')) {
+                    clean = clean + '/api/generate';
+                }
+                return clean;
             }
+
+            const candidateEndpoints = [
+                normalize(aiEndpoint),
+                normalize(cloudDefaultEndpoint),
+                'http://192.168.0.66:11434/api/generate',
+                'http://127.0.0.1:11434/api/generate'
+            ].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
 
             // Cap at 24s in cloud serverless to fit comfortably within Netlify's 26s execution ceiling.
             // On local on-premise servers (Windows / Mac / Linux), allow 90 seconds.
@@ -1320,56 +1319,44 @@ Counselor AI Summary:`;
             const tokenLimit = isCloudEnv ? 80 : 120;
 
             let ollamaResponse: Response | null = null;
-            try {
-                ollamaResponse = await fetch(aiEndpoint, {
-                    method: 'POST',
-                    headers: aiHeaders,
-                    body: JSON.stringify({
-                        model: aiModel,
-                        prompt: prompt,
-                        stream: false,
-                        keep_alive: -1,
-                        options: {
-                            num_predict: tokenLimit,
-                            temperature: 0.2
-                        }
-                    }),
-                    signal: AbortSignal.timeout(timeoutMs)
-                });
-            } catch (err: any) {
-                // If on local on-premise machine, attempt alternate local ports/hosts
-                if (!isCloudEnv) {
-                    const fallbackEndpoints = [
-                        'http://127.0.0.1:11434/api/generate',
-                        'http://localhost:11434/api/generate',
-                        'http://192.168.0.66:11434/api/generate',
-                        aiEndpoint.includes(':11435') ? aiEndpoint.replace(':11435', ':11434') : null
-                    ].filter(Boolean).filter(ep => ep !== aiEndpoint) as string[];
+            let lastAiError: any = null;
 
-                    for (const fbUrl of fallbackEndpoints) {
-                        try {
-                            ollamaResponse = await fetch(fbUrl, {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({
-                                    model: aiModel,
-                                    prompt: prompt,
-                                    stream: false,
-                                    keep_alive: -1,
-                                    options: { num_predict: 120, temperature: 0.2 }
-                                }),
-                                signal: AbortSignal.timeout(timeoutMs)
-                            });
-                            if (ollamaResponse && ollamaResponse.ok) break;
-                        } catch (e2) {
-                            // try next fallback
-                        }
+            for (const targetUrl of candidateEndpoints) {
+                try {
+                    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+                    if (aiApiKey) {
+                        headers['Authorization'] = `Bearer ${aiApiKey}`;
+                        headers['x-api-key'] = aiApiKey;
                     }
-                }
 
-                if (!ollamaResponse || !ollamaResponse.ok) {
-                    throw err;
+                    ollamaResponse = await fetch(targetUrl, {
+                        method: 'POST',
+                        headers,
+                        body: JSON.stringify({
+                            model: aiModel,
+                            prompt: prompt,
+                            stream: false,
+                            keep_alive: -1,
+                            options: {
+                                num_predict: tokenLimit,
+                                temperature: 0.2
+                            }
+                        }),
+                        signal: AbortSignal.timeout(timeoutMs)
+                    });
+
+                    if (ollamaResponse && ollamaResponse.ok) {
+                        break;
+                    } else {
+                        lastAiError = new Error(`Target ${targetUrl} returned status ${ollamaResponse?.status}`);
+                    }
+                } catch (err: any) {
+                    lastAiError = err;
                 }
+            }
+
+            if (!ollamaResponse || !ollamaResponse.ok) {
+                throw lastAiError || new Error(`All candidate AI endpoints unreachable.`);
             }
             
             if (ollamaResponse && ollamaResponse.ok) {

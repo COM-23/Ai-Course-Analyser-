@@ -46,23 +46,30 @@ export async function GET() {
     } catch (e) {}
   }
 
-  if (isCloudEnv) {
-    if (!configuredEndpoint || configuredEndpoint.includes('192.168.') || configuredEndpoint.includes('127.0.0.1') || configuredEndpoint.includes('localhost') || configuredEndpoint.includes('headline-alive')) {
-      configuredEndpoint = cloudDefaultEndpoint;
-    }
-    if (!configuredApiKey) {
-      configuredApiKey = cloudDefaultApiKey;
-    }
-  } else {
-    if (!configuredEndpoint) {
-      configuredEndpoint = 'http://192.168.0.66:11434/api/generate';
-    }
+  if (!configuredApiKey) {
+    configuredApiKey = cloudDefaultApiKey;
   }
+
+  function normalize(u: string) {
+    if (!u) return '';
+    let clean = u.trim().replace(/\/+$/, '');
+    if (!clean.endsWith('/api/generate')) {
+      clean = clean + '/api/generate';
+    }
+    return clean;
+  }
+
+  const candidateEndpoints = [
+    normalize(configuredEndpoint),
+    normalize(cloudDefaultEndpoint),
+    'http://192.168.0.66:11434/api/generate',
+    'http://127.0.0.1:11434/api/generate'
+  ].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
 
   const result: any = {
     database: { status: 'unknown' },
     aiServer: {
-      endpoint: configuredEndpoint,
+      endpoint: candidateEndpoints[0] || configuredEndpoint,
       model: process.env.LOCAL_AI_MODEL || 'llama3.1',
       status: 'unknown'
     }
@@ -83,33 +90,43 @@ export async function GET() {
     };
   }
 
-  // 2. Check Linux Ollama Server
-  try {
-    const baseUrl = configuredEndpoint.replace(/\/api\/generate\/?$/, '');
-    
-    const headers: Record<string, string> = {};
-    if (configuredApiKey) {
-      headers['Authorization'] = `Bearer ${configuredApiKey}`;
-      headers['x-api-key'] = configuredApiKey;
-    }
+  // 2. Check Candidate AI Server Endpoints in sequence
+  let lastError = '';
+  let connected = false;
 
-    const tagsRes = await fetch(`${baseUrl}/api/tags`, {
-      method: 'GET',
-      headers,
-      signal: AbortSignal.timeout(isCloudEnv ? 8000 : 4000)
-    });
+  for (const ep of candidateEndpoints) {
+    try {
+      const baseUrl = ep.replace(/\/api\/generate\/?$/, '');
+      const headers: Record<string, string> = {};
+      if (configuredApiKey) {
+        headers['Authorization'] = `Bearer ${configuredApiKey}`;
+        headers['x-api-key'] = configuredApiKey;
+      }
 
-    if (tagsRes.ok) {
-      const data = await tagsRes.json();
-      result.aiServer.status = 'connected';
-      result.aiServer.models = data.models?.map((m: any) => m.name) || [];
-    } else {
-      result.aiServer.status = 'error';
-      result.aiServer.statusCode = tagsRes.status;
+      const tagsRes = await fetch(`${baseUrl}/api/tags`, {
+        method: 'GET',
+        headers,
+        signal: AbortSignal.timeout(isCloudEnv ? 6000 : 3000)
+      });
+
+      if (tagsRes.ok) {
+        const data = await tagsRes.json();
+        result.aiServer.status = 'connected';
+        result.aiServer.endpoint = ep;
+        result.aiServer.models = data.models?.map((m: any) => m.name) || [];
+        connected = true;
+        break;
+      } else {
+        lastError = `Status ${tagsRes.status} from ${ep}`;
+      }
+    } catch (e: any) {
+      lastError = `${ep}: ${e?.message || String(e)}`;
     }
-  } catch (aiErr: any) {
+  }
+
+  if (!connected) {
     result.aiServer.status = 'unreachable';
-    result.aiServer.error = aiErr?.message || String(aiErr);
+    result.aiServer.error = lastError;
   }
 
   return NextResponse.json(result);

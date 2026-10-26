@@ -2545,6 +2545,7 @@ export default function Home() {
                                 </p>
                                 <p className="text-[11px] text-slate-500 truncate max-w-xs md:max-w-md">
                                   {aiHealthStatus?.endpoint || 'No active tunnel endpoint detected'}
+                                  {aiHealthStatus?.error ? ` (${aiHealthStatus.error})` : ''}
                                 </p>
                               </div>
                             </div>
