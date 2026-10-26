@@ -48,4 +48,20 @@ This log records every technical incident, its underlying root cause, and the ex
   - Added classification logic to detect high school lines (`10th`, `class 10`, `matric`, `ssc`) and de-prioritize them in favor of university degree lines (`bachelor`, `b.tech`, `degree`).
   - Prioritized counselor manual input box as the absolute source of truth.
   - Preserved `.toFixed(2)` precision so `5.98` stays `5.98`.
+
+---
+
+### Incident 4: Cloud Database Student & Side-by-Side Comparison Persistence
+- **Symptom**: On Cloud Netlify, analyzed students disappeared after refresh and side-by-side country comparison data was not being saved or restored.
+- **Root Cause**:
+  1. Netlify Lambda serverless uses Node 20 where native C++ bindings for `better-sqlite3` fail, falling back to `createPureJsDatabase`.
+  2. `createPureJsDatabase` had stub implementations for `INSERT INTO students` (discarded profile parameters) and had zero implementation for `UPDATE students SET comparisonData = ?`.
+  3. `all()` returned students with undefined JSON fields, causing `/api/students` to throw `SyntaxError` on `JSON.parse`, yielding HTTP 500.
+  4. In `src/app/page.tsx`, if the user ran country comparisons without first clicking "Analyze", `primaryStudentId` was `null` across all iterations, creating isolated records rather than appending to comparisonData.
+- **Solution**:
+  - Implemented full parameter capture in `createPureJsDatabase` for `INSERT` (10 and 11 parameters) and `UPDATE` statements for both students and `comparisonData`.
+  - Added safe parsing in `src/app/api/students/route.ts` to prevent any 500 crashes.
+  - Linked `activeStudentId` across comparison iterations in `src/app/page.tsx` so all comparison countries attach to the student record and persist immediately in database, state, and `localStorage`.
+  - Cast student IDs to `Number(...)` to prevent BigInt JSON serialization crashes.
+
   - Packaged the fixed project into `Ai-Course-Analyser-Windows.zip`.
