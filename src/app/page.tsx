@@ -444,6 +444,7 @@ export default function Home() {
   const [destinationCountry, setDestinationCountry] = useState("Not Decided");
   const [intake, setIntake] = useState("Not Decided");
   const [appendMode, setAppendMode] = useState(false);
+  const [realtimeFetching, setRealtimeFetching] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<AnalysisResult | null>(null);
@@ -782,6 +783,7 @@ export default function Home() {
         destinationCountry,
         targetIntake: intake,
         counselorId: currentUser ? currentUser.id : 1,
+        realtimeFetching,
         existingColleges: appendMode && result ? result.recommendedColleges : undefined
       };
 
@@ -881,6 +883,7 @@ export default function Home() {
           primaryStudentId: activeStudentId,
           compareCountryIndex: i,
           totalCompareCountries: compareCountries.length,
+          realtimeFetching,
         };
         let res = await fetch("/api/analyze", {
           method: "POST",
@@ -1445,9 +1448,17 @@ export default function Home() {
                 </div>
               </div>
 
-              <div className="flex items-center gap-2 py-2">
-                <input type="checkbox" id="appendMode" checked={appendMode} onChange={(e) => setAppendMode(e.target.checked)} className="w-4 h-4 rounded border-white/10 bg-black/40 text-[#FC7133] accent-[#FC7133] focus:ring-[#FC7133]/50 cursor-pointer" />
-                <label htmlFor="appendMode" className="text-xs text-slate-400 font-medium cursor-pointer">Append new results to current list (Side-by-side comparison)</label>
+              <div className="flex flex-col gap-2 py-2">
+                <div className="flex items-center gap-2">
+                  <input type="checkbox" id="appendMode" checked={appendMode} onChange={(e) => setAppendMode(e.target.checked)} className="w-4 h-4 rounded border-white/10 bg-black/40 text-[#FC7133] accent-[#FC7133] focus:ring-[#FC7133]/50 cursor-pointer" />
+                  <label htmlFor="appendMode" className="text-xs text-slate-400 font-medium cursor-pointer">Append new results to current list (Side-by-side comparison)</label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input type="checkbox" id="realtimeFetching" checked={realtimeFetching} onChange={(e) => setRealtimeFetching(e.target.checked)} className="w-4 h-4 rounded border-white/10 bg-black/40 text-[#FC7133] accent-[#FC7133] focus:ring-[#FC7133]/50 cursor-pointer" />
+                  <label htmlFor="realtimeFetching" className="text-xs text-slate-400 font-medium cursor-pointer flex items-center gap-1.5">
+                    <Globe className="w-3.5 h-3.5 text-blue-400" /> Real-time Live Google Search <span className="text-[10px] text-slate-500">(Database has 1,522 colleges; check only for live web query)</span>
+                  </label>
+                </div>
               </div>
 
               <button 

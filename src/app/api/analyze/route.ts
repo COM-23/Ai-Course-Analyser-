@@ -178,6 +178,7 @@ async function scrapeLiveUniversities(domain: string, country: string, degreeObj
 }
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 26;
 
 // THIS IS THE "BRAIN" - Built directly into the backend using a Keyword Heuristic Engine.
 // It analyzes text entirely locally in memory, no external endpoints. Now enhanced with local LLM.
@@ -283,7 +284,7 @@ class LocalHeuristicBrain {
       });
   }
 
-  async analyze(text: string, context: string, manualCountry: string, manualIntake: string, aiStrictness: string = "standard") {
+  async analyze(text: string, context: string, manualCountry: string, manualIntake: string, aiStrictness: string = "standard", realtimeFetching: boolean = false) {
     // Strictly identify real cloud serverless environments (Netlify / Vercel / AWS Lambda)
     const isCloudEnv = !!(
       process.env.NETLIFY ||
@@ -1053,15 +1054,16 @@ class LocalHeuristicBrain {
       }
       
       // INJECT LIVE WEB SCRAPED COLLEGES
-      // In cloud serverless environments (Netlify), avoid slow external web scraping if DB already contains 5+ eligible colleges to guarantee responses under timeout limits
-      const shouldScrape = isCloudEnv ? (eligibleColleges.length < 5) : true;
-      if (shouldScrape && (eligibleColleges.length > 0 || !activeBacklogs || activeBacklogs <= 0 || extractedBacklogs.includes("Cleared"))) {
+      // User rule: Google scraping is ONLY for changed criteria (0 matches in DB) or explicit realtime fetching.
+      // If the database already has matching universities for this criteria, use the database data directly!
+      const shouldScrape = realtimeFetching || (eligibleColleges.length === 0);
+      if (shouldScrape && (!activeBacklogs || activeBacklogs <= 0 || extractedBacklogs.includes("Cleared"))) {
           const liveScraped = await scrapeLiveUniversities(primaryDomain, destinationCountry, degreeObjective);
           eligibleColleges = [...liveScraped, ...eligibleColleges];
       }
     } else {
-      // If no specific country is selected, still pull a few live global ones for variety
-      const shouldScrape = isCloudEnv ? (eligibleColleges.length < 5) : true;
+      // If no specific country is selected, only scrape if DB has 0 matches or realtime requested
+      const shouldScrape = realtimeFetching || (eligibleColleges.length === 0);
       if (shouldScrape && (!activeBacklogs || activeBacklogs <= 0 || extractedBacklogs.includes("Cleared"))) {
           const liveScraped = await scrapeLiveUniversities(primaryDomain, "USA", degreeObjective); // default to USA search
           eligibleColleges = [...liveScraped, ...eligibleColleges];
@@ -1390,10 +1392,10 @@ Counselor AI Summary:`;
                 : [normalize(aiEndpoint), normalize(cloudDefaultEndpoint), 'http://192.168.0.66:11434/api/generate', 'http://127.0.0.1:11434/api/generate']
             ).filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
 
-            // Cap at 6s in cloud serverless so it cleanly falls back to instant structured counselor engine well before Netlify's 10s ceiling.
+            // Allow up to 20s in cloud serverless (within maxDuration 26s) so Ollama has full time to finish reasoning & generation.
             // On local on-premise servers (Windows / Mac / Linux), allow 90 seconds.
-            const timeoutMs = isCloudEnv ? 6000 : 90000;
-            const tokenLimit = isCloudEnv ? 30 : 120;
+            const timeoutMs = isCloudEnv ? 20000 : 90000;
+            const tokenLimit = isCloudEnv ? 90 : 120;
 
             let ollamaResponse: Response | null = null;
             let lastAiError: any = null;
@@ -1481,6 +1483,7 @@ export async function POST(req: NextRequest) {
     if (body.pdfBase64) pdfBase64 = body.pdfBase64;
     // If this is a side-by-side compare run, record the parent student id
     const primaryStudentId: number | null = body.primaryStudentId ? parseInt(body.primaryStudentId, 10) : null;
+    const realtimeFetching: boolean = !!body.realtimeFetching || !!body.forceScrape;
 
     let extractedText = "";
     
@@ -1516,7 +1519,7 @@ export async function POST(req: NextRequest) {
 
     // 2. USE THE CUSTOM INDEPENDENT BRAIN
     const brain = new LocalHeuristicBrain();
-    const analysis = await brain.analyze(extractedText, additionalContext || "", destinationCountry, targetIntake, aiStrictness);
+    const analysis = await brain.analyze(extractedText, additionalContext || "", destinationCountry, targetIntake, aiStrictness, realtimeFetching);
 
     try {
       if (!primaryStudentId) {
