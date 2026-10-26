@@ -2,6 +2,15 @@ import path from 'path';
 import fs from 'fs';
 import bcrypt from 'bcryptjs';
 
+let embeddedSeed: any = null;
+try {
+  embeddedSeed = require('./db-seed.json');
+} catch (e) {
+  try {
+    embeddedSeed = require('../lib/db-seed.json');
+  } catch (e2) {}
+}
+
 declare const __non_webpack_require__: any;
 
 export interface DatabaseAdapter {
@@ -270,55 +279,58 @@ export function getDb(): DatabaseAdapter {
   try {
     const uniCount = (db.prepare('SELECT COUNT(*) as count FROM universities').get() as any)?.count || 0;
     if (uniCount < 100) {
-      const seedCandidates = [
-        path.join(process.cwd(), 'src/lib/db-seed.json'),
-        path.resolve(__dirname, 'db-seed.json'),
-        path.resolve(__dirname, '../../src/lib/db-seed.json'),
-        path.resolve(__dirname, '../../../src/lib/db-seed.json')
-      ];
-      const seedFile = seedCandidates.find(p => fs.existsSync(p));
-      if (seedFile) {
-        const seedData = JSON.parse(fs.readFileSync(seedFile, 'utf-8'));
-        if (Array.isArray(seedData.universities) && seedData.universities.length > 0) {
-          const insertStmt = db.prepare(`
-            INSERT OR REPLACE INTO universities (
-              id, name, location, domain, minCgpa, tuition, currency, programs,
-              acceptanceRate, campusSetting, minIelts, minToefl, minPte, minDuolingo,
-              ieltsWaiver, maxBacklogs, ranking, scholarships, intakes, courseLink
-            ) VALUES (
-              @id, @name, @location, @domain, @minCgpa, @tuition, @currency, @programs,
-              @acceptanceRate, @campusSetting, @minIelts, @minToefl, @minPte, @minDuolingo,
-              @ieltsWaiver, @maxBacklogs, @ranking, @scholarships, @intakes, @courseLink
-            )
-          `);
-          const insertMany = db.transaction((unis: any[]) => {
-            for (const u of unis) {
-              insertStmt.run({
-                id: u.id,
-                name: u.name,
-                location: u.location,
-                domain: u.domain || 'science_technology',
-                minCgpa: u.minCgpa || 7.0,
-                tuition: u.tuition || 30000,
-                currency: u.currency || 'USD',
-                programs: typeof u.programs === 'string' ? u.programs : JSON.stringify(u.programs || {}),
-                acceptanceRate: u.acceptanceRate || '50%',
-                campusSetting: u.campusSetting || 'Urban',
-                minIelts: u.minIelts || '6.5',
-                minToefl: u.minToefl || '88',
-                minPte: u.minPte || '62',
-                minDuolingo: u.minDuolingo || '115',
-                ieltsWaiver: u.ieltsWaiver || 'Yes',
-                maxBacklogs: u.maxBacklogs || 4,
-                ranking: u.ranking || 'Top Tier',
-                scholarships: u.scholarships || 'Available',
-                intakes: u.intakes || 'Fall, Spring',
-                courseLink: u.courseLink || null
-              });
-            }
-          });
-          insertMany(seedData.universities);
+      let seedData = embeddedSeed;
+      if (!seedData) {
+        const seedCandidates = [
+          path.join(process.cwd(), 'src/lib/db-seed.json'),
+          path.resolve(__dirname, 'db-seed.json'),
+          path.resolve(__dirname, '../../src/lib/db-seed.json'),
+          path.resolve(__dirname, '../../../src/lib/db-seed.json')
+        ];
+        const seedFile = seedCandidates.find(p => fs.existsSync(p));
+        if (seedFile) {
+          try { seedData = JSON.parse(fs.readFileSync(seedFile, 'utf-8')); } catch {}
         }
+      }
+      if (seedData && Array.isArray(seedData.universities) && seedData.universities.length > 0) {
+        const insertStmt = db.prepare(`
+          INSERT OR REPLACE INTO universities (
+            id, name, location, domain, minCgpa, tuition, currency, programs,
+            acceptanceRate, campusSetting, minIelts, minToefl, minPte, minDuolingo,
+            ieltsWaiver, maxBacklogs, ranking, scholarships, intakes, courseLink
+          ) VALUES (
+            @id, @name, @location, @domain, @minCgpa, @tuition, @currency, @programs,
+            @acceptanceRate, @campusSetting, @minIelts, @minToefl, @minPte, @minDuolingo,
+            @ieltsWaiver, @maxBacklogs, @ranking, @scholarships, @intakes, @courseLink
+          )
+        `);
+        const insertMany = db.transaction((unis: any[]) => {
+          for (const u of unis) {
+            insertStmt.run({
+              id: u.id,
+              name: u.name,
+              location: u.location,
+              domain: u.domain || 'science_technology',
+              minCgpa: u.minCgpa || 7.0,
+              tuition: u.tuition || 30000,
+              currency: u.currency || 'USD',
+              programs: typeof u.programs === 'string' ? u.programs : JSON.stringify(u.programs || {}),
+              acceptanceRate: u.acceptanceRate || '50%',
+              campusSetting: u.campusSetting || 'Urban',
+              minIelts: u.minIelts || '6.5',
+              minToefl: u.minToefl || '88',
+              minPte: u.minPte || '62',
+              minDuolingo: u.minDuolingo || '115',
+              ieltsWaiver: u.ieltsWaiver || 'Yes',
+              maxBacklogs: u.maxBacklogs || 4,
+              ranking: u.ranking || 'Top Tier',
+              scholarships: u.scholarships || 'Available',
+              intakes: u.intakes || 'Fall, Spring',
+              courseLink: u.courseLink || null
+            });
+          }
+        });
+        insertMany(seedData.universities);
       }
     }
   } catch (seedErr) {}
@@ -357,12 +369,26 @@ function createPureJsDatabase(storagePath: string): DatabaseAdapter {
     try {
       memoryData = JSON.parse(fs.readFileSync(seedPath, 'utf-8'));
     } catch {}
+  } else if (embeddedSeed) {
+    try {
+      memoryData = JSON.parse(JSON.stringify(embeddedSeed));
+    } catch {}
   }
 
   memoryData.users = memoryData.users || [];
   memoryData.settings = memoryData.settings || [];
   memoryData.universities = memoryData.universities || [];
   memoryData.students = memoryData.students || [];
+
+  if (memoryData.universities.length === 0 && embeddedSeed?.universities) {
+    memoryData.universities = JSON.parse(JSON.stringify(embeddedSeed.universities));
+  }
+  if (memoryData.users.length === 0 && embeddedSeed?.users) {
+    memoryData.users = JSON.parse(JSON.stringify(embeddedSeed.users));
+  }
+  if (memoryData.settings.length === 0 && embeddedSeed?.settings) {
+    memoryData.settings = JSON.parse(JSON.stringify(embeddedSeed.settings));
+  }
 
   // Ensure default superadmin exists
   if (!memoryData.users || memoryData.users.length === 0) {
@@ -602,6 +628,17 @@ function createPureJsDatabase(storagePath: string): DatabaseAdapter {
           if (upper.startsWith('DELETE FROM STUDENTS WHERE ID = ?')) {
             const id = Number(params[0]);
             memoryData.students = memoryData.students.filter((x: any) => x.id !== id);
+            persist();
+            return { changes: 1, lastInsertRowid: 0 };
+          }
+          if (upper.startsWith('INSERT') && upper.includes('INTO UNIVERSITIES')) {
+            const u = (params[0] && typeof params[0] === 'object') ? params[0] : { id: String(params[0] || Date.now()) };
+            const existingIdx = memoryData.universities.findIndex((x: any) => x.id === u.id);
+            if (existingIdx >= 0) {
+              memoryData.universities[existingIdx] = { ...memoryData.universities[existingIdx], ...u };
+            } else {
+              memoryData.universities.push(u);
+            }
             persist();
             return { changes: 1, lastInsertRowid: 0 };
           }

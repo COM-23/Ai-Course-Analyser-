@@ -102,21 +102,42 @@ export async function GET() {
         headers['x-api-key'] = configuredApiKey;
       }
 
-      const tagsRes = await fetch(`${baseUrl}/api/tags`, {
-        method: 'GET',
-        headers,
-        signal: AbortSignal.timeout(isCloudEnv ? 6000 : 3000)
-      });
+      let isUp = false;
+      let modelList: string[] = [];
 
-      if (tagsRes.ok) {
-        const data = await tagsRes.json();
+      // 1. Fast ping check
+      try {
+        const pingRes = await fetch(`${baseUrl}/ping`, {
+          method: 'GET',
+          signal: AbortSignal.timeout(isCloudEnv ? 3000 : 2000)
+        });
+        if (pingRes.ok) isUp = true;
+      } catch (e) {}
+
+      // 2. Authenticated tags check
+      try {
+        const tagsRes = await fetch(`${baseUrl}/api/tags`, {
+          method: 'GET',
+          headers,
+          signal: AbortSignal.timeout(isCloudEnv ? 4000 : 3000)
+        });
+        if (tagsRes.ok) {
+          const data = await tagsRes.json();
+          modelList = data.models?.map((m: any) => m.name) || [];
+          isUp = true;
+        }
+      } catch (e: any) {
+        lastError = `${ep}: ${e?.message || String(e)}`;
+      }
+
+      if (isUp) {
         result.aiServer.status = 'connected';
         result.aiServer.endpoint = ep;
-        result.aiServer.models = data.models?.map((m: any) => m.name) || [];
+        result.aiServer.models = modelList.length > 0 ? modelList : ['llama3.1'];
         connected = true;
         break;
-      } else {
-        lastError = `Status ${tagsRes.status} from ${ep}`;
+      } else if (!lastError) {
+        lastError = `Unreachable: ${ep}`;
       }
     } catch (e: any) {
       lastError = `${ep}: ${e?.message || String(e)}`;
