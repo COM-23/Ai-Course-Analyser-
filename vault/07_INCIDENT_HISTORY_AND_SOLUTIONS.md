@@ -65,3 +65,15 @@ This log records every technical incident, its underlying root cause, and the ex
   - Cast student IDs to `Number(...)` to prevent BigInt JSON serialization crashes.
 
   - Packaged the fixed project into `Ai-Course-Analyser-Windows.zip`.
+
+---
+
+### Incident 5: Premature AI Execution Termination & Unrestricted Google Scraping
+- **Symptom**: Counselor observed that the analysis report was displayed on the UI *before* the on-premises AI stopped execution, and wanted Google scraping restricted to changed criteria / real-time fetching.
+- **Root Cause**:
+  1. `timeoutMs` in `src/app/api/analyze/route.ts` was capped at 6,000ms (6.0s) for cloud serverless. Ollama on CPU takes ~4–7 seconds to generate tokens. When it crossed 6.0s, the cloud fetch aborted and activated the instant counselor report, while Ollama was still in the middle of generating tokens in the background on the Linux server.
+  2. Google/DuckDuckGo web scraping was running unconditionally whenever `eligibleColleges.length < 5` or on local, despite having 1,522 universities already loaded in the database, adding 3–5 seconds of needless delay.
+- **Solution**:
+  - Gated Google scraping: `shouldScrape = realtimeFetching || (eligibleColleges.length === 0)`. The 1,522 universities in the database are prioritized first; Google scraping only triggers if zero colleges match the criteria or if the user checks the "Real-time Live Google Search" checkbox.
+  - Added `export const maxDuration = 26;` to `src/app/api/analyze/route.ts` for full Netlify serverless execution headroom.
+  - Extended cloud AI timeout `timeoutMs` to 20,000ms (20s) and set `tokenLimit` to 90 tokens, allowing Ollama to finish its full inference before the cloud function returns the true AI report.
