@@ -42,21 +42,27 @@ export async function GET(req: Request) {
     }
 
     
-    // Parse JSON strings back into objects
+    // Parse JSON strings back into objects safely
+    const parseSafe = (val: any, fallback: any) => {
+      if (!val) return fallback;
+      if (typeof val === 'object') return val;
+      try { return JSON.parse(val); } catch { return fallback; }
+    };
+
     const formattedRows = rows.map((row: any) => ({
       id: row.id,
-      studentDetails: JSON.parse(row.studentDetails),
-      studentSummary: row.studentSummary,
-      strengths: JSON.parse(row.strengths),
-      areasForImprovement: JSON.parse(row.areasForImprovement),
-      careerOpportunities: JSON.parse(row.careerOpportunities),
-      recommendedColleges: JSON.parse(row.recommendedColleges),
-      visaDifficulty: row.visaDifficulty,
-      keySkillsIdentified: JSON.parse(row.keySkillsIdentified),
-      estimatedBudgetRange: row.estimatedBudgetRange,
+      studentDetails: parseSafe(row.studentDetails, {}),
+      studentSummary: row.studentSummary || '',
+      strengths: parseSafe(row.strengths, []),
+      areasForImprovement: parseSafe(row.areasForImprovement, []),
+      careerOpportunities: parseSafe(row.careerOpportunities, []),
+      recommendedColleges: parseSafe(row.recommendedColleges, []),
+      visaDifficulty: row.visaDifficulty || '',
+      keySkillsIdentified: parseSafe(row.keySkillsIdentified, []),
+      estimatedBudgetRange: row.estimatedBudgetRange || '',
       createdAt: row.createdAt,
       counselorName: row.counselorName || 'Unknown Counselor',
-      comparisonData: row.comparisonData ? JSON.parse(row.comparisonData) : []
+      comparisonData: parseSafe(row.comparisonData, [])
     }));
 
     return NextResponse.json(formattedRows);

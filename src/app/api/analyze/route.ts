@@ -1356,8 +1356,9 @@ Counselor AI Summary:`;
                 }
             } catch (e) {}
 
-            // Check if local .tunnel-status.json exists
-            if (!aiEndpoint || aiEndpoint.includes('headline-alive')) {
+            // Check if local .tunnel-status.json exists or dead tunnel is configured
+            if (!aiEndpoint || aiEndpoint.includes('headline-alive') || aiEndpoint.includes('blink-competitions')) {
+                aiEndpoint = cloudDefaultEndpoint;
                 try {
                     const nodeFs = require('fs');
                     const nodePath = require('path');
@@ -1385,7 +1386,7 @@ Counselor AI Summary:`;
             }
 
             const candidateEndpoints = (isCloudEnv
-                ? [normalize(aiEndpoint), normalize(cloudDefaultEndpoint)]
+                ? [normalize(cloudDefaultEndpoint), normalize(aiEndpoint)]
                 : [normalize(aiEndpoint), normalize(cloudDefaultEndpoint), 'http://192.168.0.66:11434/api/generate', 'http://127.0.0.1:11434/api/generate']
             ).filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
 
@@ -1541,7 +1542,7 @@ export async function POST(req: NextRequest) {
               analysis.estimatedBudgetRange,
               existingStudent.id
            );
-           (analysis as any).id = existingStudent.id;
+           (analysis as any).id = Number(existingStudent.id);
         } else {
           const stmt = getDb().prepare(`
             INSERT INTO students (
@@ -1563,10 +1564,10 @@ export async function POST(req: NextRequest) {
             analysis.estimatedBudgetRange,
             counselorId
           );
-          (analysis as any).id = info.lastInsertRowid;
+          (analysis as any).id = Number(info.lastInsertRowid);
         }
       } else {
-        (analysis as any).id = primaryStudentId;
+        (analysis as any).id = Number(primaryStudentId);
       }
 
       // If this is a side-by-side compare run, also save the result into the parent student's comparisonData column
@@ -1574,9 +1575,15 @@ export async function POST(req: NextRequest) {
         try {
           // Read existing comparisonData
           const parentStudent = getDb().prepare('SELECT comparisonData FROM students WHERE id = ?').get(primaryStudentId) as any;
-          let compareArray = [];
+          let compareArray: any[] = [];
           if (parentStudent && parentStudent.comparisonData) {
-            compareArray = JSON.parse(parentStudent.comparisonData);
+            try {
+              compareArray = typeof parentStudent.comparisonData === 'string'
+                ? JSON.parse(parentStudent.comparisonData)
+                : parentStudent.comparisonData;
+            } catch {
+              compareArray = [];
+            }
             if (!Array.isArray(compareArray)) compareArray = [compareArray];
           }
 
@@ -1597,12 +1604,37 @@ export async function POST(req: NextRequest) {
             estimatedBudgetRange: analysis.estimatedBudgetRange,
           });
 
-          getDb().prepare(`
-            UPDATE students SET comparisonData = ?, createdAt = CURRENT_TIMESTAMP WHERE id = ?
-          `).run(
-            JSON.stringify(compareArray),
-            primaryStudentId
-          );
+          if (!parentStudent) {
+            // If parent student doesn't exist in this DB instance (e.g. serverless cold start), insert now with comparisonData
+            const insertStmt = getDb().prepare(`
+              INSERT INTO students (
+                studentDetails, studentSummary, strengths, areasForImprovement,
+                careerOpportunities, recommendedColleges, visaDifficulty,
+                keySkillsIdentified, estimatedBudgetRange, counselor_id, comparisonData
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `);
+            const insertInfo = insertStmt.run(
+              JSON.stringify(analysis.studentDetails),
+              analysis.studentSummary,
+              JSON.stringify(analysis.strengths),
+              JSON.stringify(analysis.areasForImprovement),
+              JSON.stringify(analysis.careerOpportunities),
+              JSON.stringify(analysis.recommendedColleges),
+              analysis.visaDifficulty,
+              JSON.stringify(analysis.keySkillsIdentified),
+              analysis.estimatedBudgetRange,
+              counselorId,
+              JSON.stringify(compareArray)
+            );
+            (analysis as any).id = Number(insertInfo.lastInsertRowid);
+          } else {
+            getDb().prepare(`
+              UPDATE students SET comparisonData = ?, createdAt = CURRENT_TIMESTAMP WHERE id = ?
+            `).run(
+              JSON.stringify(compareArray),
+              primaryStudentId
+            );
+          }
         } catch (compErr) {
           console.error('Error saving comparisonData to parent student:', compErr);
         }

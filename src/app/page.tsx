@@ -868,6 +868,7 @@ export default function Home() {
       }
       const context = inputType === "text" ? manualText + "\n\n" + additionalContext : additionalContext;
       const accumulated: AnalysisResult[] = [];
+      let activeStudentId = result?.id ?? null;
       
       for (let i = 0; i < compareCountries.length; i++) {
         const country = compareCountries[i];
@@ -877,7 +878,7 @@ export default function Home() {
           destinationCountry: country,
           targetIntake: intake,
           counselorId: currentUser ? currentUser.id : 1,
-          primaryStudentId: result?.id ?? null,
+          primaryStudentId: activeStudentId,
           compareCountryIndex: i,
           totalCompareCountries: compareCountries.length,
         };
@@ -913,7 +914,10 @@ export default function Home() {
         }
         const data = await res.json();
         if (data.dbError) {
-          alert(`CRITICAL WARNING: Saving ${country} comparison to the database FAILED! Error: ${data.dbError}`);
+          console.warn(`Saving ${country} comparison to DB had warning:`, data.dbError);
+        }
+        if (!activeStudentId && data.id) {
+          activeStudentId = data.id;
         }
         accumulated.push(data);
         setCompareResults([...accumulated]);
@@ -922,15 +926,28 @@ export default function Home() {
 
       // Attach comparisonData directly to active student result and history cache
       if (accumulated.length > 0) {
-        setResult(prev => (prev ? { ...prev, comparisonData: accumulated } : null));
+        const baseStudent = result || accumulated[0];
+        const targetId = activeStudentId ?? baseStudent?.id;
+        const studentWithComparison: AnalysisResult = {
+          ...baseStudent,
+          id: targetId,
+          comparisonData: accumulated
+        };
+
+        setResult(studentWithComparison);
         setHistory(prev => {
-          const targetId = result?.id ?? (accumulated[0] as any)?.id;
-          const updated = prev.map(s => {
-            if (s.id === targetId || (s.studentDetails?.name && s.studentDetails.name === result?.studentDetails?.name)) {
-              return { ...s, comparisonData: accumulated };
-            }
-            return s;
-          });
+          const exists = prev.some(s => s.id === targetId || (s.studentDetails?.name && s.studentDetails.name === baseStudent?.studentDetails?.name));
+          let updated: AnalysisResult[];
+          if (exists) {
+            updated = prev.map(s => {
+              if (s.id === targetId || (s.studentDetails?.name && s.studentDetails.name === baseStudent?.studentDetails?.name)) {
+                return { ...s, comparisonData: accumulated };
+              }
+              return s;
+            });
+          } else {
+            updated = [studentWithComparison, ...prev];
+          }
           try {
             localStorage.setItem('learn_overseas_students', JSON.stringify(updated));
           } catch (e) {}

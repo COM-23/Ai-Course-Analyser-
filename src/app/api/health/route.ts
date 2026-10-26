@@ -31,8 +31,9 @@ export async function GET() {
     }
   } catch (e) {}
 
-  // Check if local .tunnel-status.json exists
-  if (!configuredEndpoint || configuredEndpoint.includes('headline-alive')) {
+  // Check if local .tunnel-status.json exists or dead tunnel is configured
+  if (!configuredEndpoint || configuredEndpoint.includes('headline-alive') || configuredEndpoint.includes('blink-competitions')) {
+    configuredEndpoint = cloudDefaultEndpoint;
     try {
       const fs = require('fs');
       const path = require('path');
@@ -59,12 +60,10 @@ export async function GET() {
     return clean;
   }
 
-  const candidateEndpoints = [
-    normalize(configuredEndpoint),
-    normalize(cloudDefaultEndpoint),
-    'http://192.168.0.66:11434/api/generate',
-    'http://127.0.0.1:11434/api/generate'
-  ].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
+  const candidateEndpoints = (isCloudEnv
+    ? [normalize(cloudDefaultEndpoint), normalize(configuredEndpoint)]
+    : [normalize(configuredEndpoint), normalize(cloudDefaultEndpoint), 'http://192.168.0.66:11434/api/generate', 'http://127.0.0.1:11434/api/generate']
+  ).filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
 
   const result: any = {
     database: { status: 'unknown' },
