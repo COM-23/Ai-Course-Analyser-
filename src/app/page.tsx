@@ -599,7 +599,7 @@ Student: ${sName} | Goal: ${sDegree} in ${sDomain} | CGPA: ${sCgpa}/10 | Budget:
           stream: false,
           keep_alive: -1,
           options: {
-            num_predict: 50,
+            num_predict: 85,
             temperature: 0.2
           }
         }),

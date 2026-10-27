@@ -1391,7 +1391,7 @@ Student: ${extractedName} | Goal: ${degreeObjective} in ${degreeDisplay} | CGPA:
             // Cloud serverless timeout is 23s (within Netlify 26s hard gateway limit).
             // On local on-premise servers (Windows / Mac / Linux), allow 120 seconds.
             const timeoutMs = isCloudEnv ? 23000 : 120000;
-            const tokenLimit = 48;
+            const tokenLimit = isCloudEnv ? 60 : 100;
 
             let ollamaResponse: Response | null = null;
             let lastAiError: any = null;
