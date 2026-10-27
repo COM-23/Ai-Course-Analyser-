@@ -178,7 +178,7 @@ async function scrapeLiveUniversities(domain: string, country: string, degreeObj
 }
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 26;
+export const maxDuration = 60;
 
 // THIS IS THE "BRAIN" - Built directly into the backend using a Keyword Heuristic Engine.
 // It analyzes text entirely locally in memory, no external endpoints. Now enhanced with local LLM.
@@ -1401,10 +1401,11 @@ Counselor AI Summary:`;
                 : [normalize(aiEndpoint), normalize(cloudDefaultEndpoint), 'http://192.168.0.76:11434/api/generate', 'http://192.168.0.66:11434/api/generate', 'http://127.0.0.1:11434/api/generate']
             ).filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
 
-            // Allow up to 20s in cloud serverless (within maxDuration 26s) so Ollama has full time to finish reasoning & generation.
-            // On local on-premise servers (Windows / Mac / Linux), allow 90 seconds.
-            const timeoutMs = isCloudEnv ? 20000 : 90000;
-            const tokenLimit = isCloudEnv ? 90 : 120;
+            // Allow full execution time so Ollama has ample time to finish reasoning & generation.
+            // On cloud serverless, allow up to 55s (within maxDuration 60s).
+            // On local on-premise servers (Windows / Mac / Linux), allow 120 seconds.
+            const timeoutMs = isCloudEnv ? 55000 : 120000;
+            const tokenLimit = 65;
 
             let ollamaResponse: Response | null = null;
             let lastAiError: any = null;
