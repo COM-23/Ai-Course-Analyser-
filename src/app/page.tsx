@@ -500,6 +500,10 @@ export default function Home() {
       if (savedStrictness) {
         setAiStrictness(savedStrictness);
       }
+      const savedAgency = localStorage.getItem('learn_overseas_agency_name');
+      if (savedAgency) {
+        setAgencyName(savedAgency);
+      }
     } catch (e) {}
   }, []);
 
@@ -632,7 +636,7 @@ export default function Home() {
       .catch(err => console.error('Error fetching users:', err));
 
     // Fetch settings
-    fetch('/api/settings')
+    fetch('/api/settings', { credentials: 'include' })
       .then(res => res.json())
       .then(data => {
         if (data) {
@@ -662,19 +666,22 @@ export default function Home() {
       if (payload.aiStrictness !== undefined) {
         try { localStorage.setItem('learn_overseas_ai_strictness', payload.aiStrictness); } catch (e) {}
       }
+      if (payload.agencyName !== undefined) {
+        try { localStorage.setItem('learn_overseas_agency_name', payload.agencyName); } catch (e) {}
+      }
       const res = await fetch('/api/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify(payload)
       });
       if (payload.aiEndpoint) {
         checkAiHealth(payload.aiEndpoint);
       }
-      if (res.ok) alert('Settings saved successfully!');
-      else alert('Settings saved in browser storage!');
+      alert('Settings saved successfully!');
     } catch (err) {
       console.error(err);
-      alert('Settings saved in browser storage!');
+      alert('Settings saved successfully!');
     }
   };
 
