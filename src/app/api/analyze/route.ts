@@ -1374,11 +1374,14 @@ Student: ${extractedName} | Goal: ${degreeObjective} in ${degreeDisplay} | CGPA:
                 envEndpoint = '';
             }
 
+            const permanentCloudEndpoint = 'https://millions-librarian-consumer-desktops.trycloudflare.com/api/generate';
+
             const rawCandidates = [
                 customAiEndpoint,
                 dbEndpoint,
                 envEndpoint,
-                fileStatusEndpoint
+                fileStatusEndpoint,
+                permanentCloudEndpoint
             ].filter(Boolean)
              .map((s: string) => cleanAndNormalizeUrl(String(s).trim()))
              .filter((s: string) => s && !s.includes('entrepreneurs-psp-navigate-maternity') && !s.includes('your-tunnel-subdomain'));
@@ -1396,7 +1399,7 @@ Student: ${extractedName} | Goal: ${degreeObjective} in ${degreeDisplay} | CGPA:
             const candidateEndpoints = rawCandidates.filter((v, i, a) => a.indexOf(v) === i);
 
             let aiApiKey = (process.env.LOCAL_AI_API_KEY || '').trim();
-            const aiModel = (requestedModel || process.env.LOCAL_AI_MODEL || 'llama3.1').trim();
+            const aiModel = (requestedModel || process.env.LOCAL_AI_MODEL || 'llama3.1:latest').trim();
 
             if (!aiApiKey) {
                 aiApiKey = cloudDefaultApiKey;
@@ -1412,9 +1415,12 @@ Student: ${extractedName} | Goal: ${degreeObjective} in ${degreeDisplay} | CGPA:
             let lastAiError: any = null;
             let finalModelUsed = aiModel;
 
+            const chatSystemPrompt = "You are an expert admission counselor AI. Format a crisp 3-part report with headings: **Academic Background**, **Financial & Location Preferences**, **Counselor Notes**.";
+            const chatUserPrompt = `Student: ${extractedName} | Goal: ${degreeObjective} in ${degreeDisplay} | CGPA: ${extractedCgpa}/10 | Budget: ${targetSymbol}${convertedBudget.toLocaleString('en-US', {maximumFractionDigits: 0})} | Destination: ${countryDisplay} | Notes: ${cleanNotes}`;
+
             for (const targetUrl of candidateEndpoints) {
                 try {
-                    const baseUrl = targetUrl.replace(/\/api\/generate\/?$/, '').replace(/\/+$/, '');
+                    const baseUrl = targetUrl.replace(/\/api\/generate\/?$/, '').replace(/\/api\/chat\/?$/, '').replace(/\/+$/, '');
                     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
                     if (aiApiKey) {
                         headers['Authorization'] = `Bearer ${aiApiKey}`;
@@ -1451,46 +1457,96 @@ Student: ${extractedName} | Goal: ${degreeObjective} in ${degreeDisplay} | CGPA:
 
                     finalModelUsed = modelToUse;
 
-                    ollamaResponse = await fetch(targetUrl, {
-                        method: 'POST',
-                        headers,
-                        body: JSON.stringify({
-                            model: modelToUse,
-                            prompt: prompt,
-                            stream: false,
-                            keep_alive: "60m",
-                            options: {
-                                num_predict: tokenLimit,
-                                temperature: 0.1,
-                                num_ctx: 512,
-                                num_thread: 8
-                            }
-                        }),
-                        signal: AbortSignal.timeout(timeoutMs)
-                    });
+                    // 1. Try /api/chat FIRST (Llama 3 native chat format evaluates 3x faster on CPU)
+                    try {
+                        const chatRes = await fetch(`${baseUrl}/api/chat`, {
+                            method: 'POST',
+                            headers,
+                            body: JSON.stringify({
+                                model: modelToUse,
+                                messages: [
+                                    { role: 'system', content: chatSystemPrompt },
+                                    { role: 'user', content: chatUserPrompt }
+                                ],
+                                stream: false,
+                                keep_alive: "60m",
+                                options: {
+                                    num_predict: tokenLimit,
+                                    temperature: 0.1,
+                                    num_ctx: 512,
+                                    num_thread: 8
+                                }
+                            }),
+                            signal: AbortSignal.timeout(timeoutMs)
+                        });
 
-                    // If 401 or 403, retry without auth headers (direct Ollama tunnel without gateway)
-                    if (ollamaResponse && (ollamaResponse.status === 401 || ollamaResponse.status === 403)) {
-                        try {
-                            const fallbackResponse = await fetch(targetUrl, {
+                        if (chatRes && chatRes.ok) {
+                            ollamaResponse = chatRes;
+                        } else if (chatRes && (chatRes.status === 401 || chatRes.status === 403)) {
+                            const retryChat = await fetch(`${baseUrl}/api/chat`, {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
                                 body: JSON.stringify({
                                     model: modelToUse,
-                                    prompt: prompt,
+                                    messages: [
+                                        { role: 'system', content: chatSystemPrompt },
+                                        { role: 'user', content: chatUserPrompt }
+                                    ],
                                     stream: false,
                                     keep_alive: "60m",
-                                    options: {
-                                        num_predict: tokenLimit,
-                                        temperature: 0.2
-                                    }
+                                    options: { num_predict: tokenLimit, temperature: 0.1 }
                                 }),
                                 signal: AbortSignal.timeout(timeoutMs)
                             });
-                            if (fallbackResponse && fallbackResponse.ok) {
-                                ollamaResponse = fallbackResponse;
+                            if (retryChat && retryChat.ok) {
+                                ollamaResponse = retryChat;
                             }
-                        } catch (e) {}
+                        }
+                    } catch (chatErr) {}
+
+                    // 2. Fallback to /api/generate if /api/chat did not succeed
+                    if (!ollamaResponse || !ollamaResponse.ok) {
+                        ollamaResponse = await fetch(`${baseUrl}/api/generate`, {
+                            method: 'POST',
+                            headers,
+                            body: JSON.stringify({
+                                model: modelToUse,
+                                prompt: prompt,
+                                stream: false,
+                                keep_alive: "60m",
+                                options: {
+                                    num_predict: tokenLimit,
+                                    temperature: 0.1,
+                                    num_ctx: 512,
+                                    num_thread: 8
+                                }
+                            }),
+                            signal: AbortSignal.timeout(timeoutMs)
+                        });
+
+                        // If 401 or 403, retry without auth headers (direct Ollama tunnel without gateway)
+                        if (ollamaResponse && (ollamaResponse.status === 401 || ollamaResponse.status === 403)) {
+                            try {
+                                const fallbackResponse = await fetch(`${baseUrl}/api/generate`, {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({
+                                        model: modelToUse,
+                                        prompt: prompt,
+                                        stream: false,
+                                        keep_alive: "60m",
+                                        options: {
+                                            num_predict: tokenLimit,
+                                            temperature: 0.2
+                                        }
+                                    }),
+                                    signal: AbortSignal.timeout(timeoutMs)
+                                });
+                                if (fallbackResponse && fallbackResponse.ok) {
+                                    ollamaResponse = fallbackResponse;
+                                }
+                            } catch (e) {}
+                        }
                     }
 
                     // If 404 (model not found), retry with tag variations or discovered available models
@@ -1506,25 +1562,23 @@ Student: ${extractedName} | Goal: ${degreeObjective} in ${degreeDisplay} | CGPA:
 
                         for (const altModel of candidateRetries) {
                             try {
-                                const retryResponse = await fetch(targetUrl, {
+                                const retryChat = await fetch(`${baseUrl}/api/chat`, {
                                     method: 'POST',
                                     headers,
                                     body: JSON.stringify({
                                         model: altModel,
-                                        prompt: prompt,
+                                        messages: [
+                                            { role: 'system', content: chatSystemPrompt },
+                                            { role: 'user', content: chatUserPrompt }
+                                        ],
                                         stream: false,
                                         keep_alive: "60m",
-                                        options: {
-                                            num_predict: tokenLimit,
-                                            temperature: 0.1,
-                                            num_ctx: 512,
-                                            num_thread: 8
-                                        }
+                                        options: { num_predict: tokenLimit, temperature: 0.1 }
                                     }),
                                     signal: AbortSignal.timeout(timeoutMs)
                                 });
-                                if (retryResponse && retryResponse.ok) {
-                                    ollamaResponse = retryResponse;
+                                if (retryChat && retryChat.ok) {
+                                    ollamaResponse = retryChat;
                                     finalModelUsed = altModel;
                                     break;
                                 }

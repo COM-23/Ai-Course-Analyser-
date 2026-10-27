@@ -489,7 +489,7 @@ export default function Home() {
   
   const [agencyName, setAgencyName] = useState("Learn Overseas");
   const [aiStrictness, setAiStrictness] = useState("standard");
-  const [customAiEndpoint, setCustomAiEndpoint] = useState("");
+  const [customAiEndpoint, setCustomAiEndpoint] = useState("https://millions-librarian-consumer-desktops.trycloudflare.com/api/generate");
   const [aiHealthStatus, setAiHealthStatus] = useState<any>(null);
   const [isCheckingAi, setIsCheckingAi] = useState(false);
 
@@ -515,8 +515,12 @@ export default function Home() {
   useEffect(() => {
     try {
       const savedEndpoint = localStorage.getItem('learn_overseas_custom_ai_endpoint');
-      if (savedEndpoint) {
+      if (savedEndpoint && !savedEndpoint.includes('entrepreneurs-psp-navigate-maternity') && !savedEndpoint.includes('your-tunnel-subdomain')) {
         setCustomAiEndpoint(cleanAndNormalizeAiUrl(savedEndpoint));
+      } else {
+        const liveEp = "https://millions-librarian-consumer-desktops.trycloudflare.com/api/generate";
+        setCustomAiEndpoint(liveEp);
+        try { localStorage.setItem('learn_overseas_custom_ai_endpoint', liveEp); } catch (e) {}
       }
       const savedStrictness = localStorage.getItem('learn_overseas_ai_strictness');
       if (savedStrictness) {
@@ -577,12 +581,12 @@ export default function Home() {
     if (!ep && aiHealthStatus?.endpoint) {
       ep = String(aiHealthStatus.endpoint).trim();
     }
-    if (!ep) {
-      console.warn("No active AI endpoint configured for direct generation.");
-      return;
+    if (!ep || ep.includes('entrepreneurs-psp-navigate-maternity') || ep.includes('your-tunnel-subdomain')) {
+      ep = 'https://millions-librarian-consumer-desktops.trycloudflare.com/api/generate';
     }
 
     let targetUrl = cleanAndNormalizeAiUrl(ep);
+    let baseUrl = targetUrl.replace(/\/api\/generate\/?$/, '').replace(/\/api\/chat\/?$/, '').replace(/\/+$/, '');
 
     setIsGeneratingAiDirectly(true);
     try {
@@ -600,22 +604,22 @@ export default function Home() {
         ? rawCtx.slice(0, 100).replace(/\s+/g, ' ').trim()
         : "Standard admission assessment";
 
+      const chatSys = "You are an expert admission counselor AI. Format a concise 3-part report with headings: **Academic Background**, **Financial & Location Preferences**, **Counselor Notes**.";
+      const chatUser = `Student: ${sName} | Goal: ${sDegree} in ${sDomain} | CGPA: ${sCgpa}/10 | Budget: ${sBudget} | Destination: ${sDest} | Top Matches: ${sMatches || 'Identified'} | Notes: ${sNotes}`;
+
       const directPrompt = `<|start_header_id|>system<|end_header_id|>
-You are an expert admission counselor AI. Write a concise 3-part report with EXACTLY these bold headings:
-**Academic Background**
-**Financial & Location Preferences**
-**Counselor Notes**
-Be concise and factual.<|eot_id|><|start_header_id|>user<|end_header_id|>
-Student: ${sName} | Goal: ${sDegree} in ${sDomain} | CGPA: ${sCgpa}/10 | Budget: ${sBudget} | Destination: ${sDest} | Top Matches: ${sMatches || 'Identified'} | Notes: ${sNotes}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`;
+${chatSys}<|eot_id|><|start_header_id|>user<|end_header_id|>
+${chatUser}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`;
 
       const aiKey = 'lo_live_qDYoGoQFKz7bM35ijtVa-9BwznoFZhqO';
-      const candidateModel = (aiHealthStatus?.model || aiHealthStatus?.models?.[0] || 'llama3.1').trim();
+      const candidateModel = (aiHealthStatus?.model || aiHealthStatus?.models?.[0] || 'llama3.1:latest').trim();
 
       let response: Response | null = null;
       let usedModel = candidateModel;
 
+      // 1. Send via /api/chat first (Llama 3 native chat format)
       try {
-        response = await fetch(targetUrl, {
+        response = await fetch(`${baseUrl}/api/chat`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -624,35 +628,64 @@ Student: ${sName} | Goal: ${sDegree} in ${sDomain} | CGPA: ${sCgpa}/10 | Budget:
           },
           body: JSON.stringify({
             model: candidateModel,
-            prompt: directPrompt,
+            messages: [
+              { role: 'system', content: chatSys },
+              { role: 'user', content: chatUser }
+            ],
             stream: false,
             keep_alive: "60m",
             options: {
-              num_predict: 85,
-              temperature: 0.2
+              num_predict: 65,
+              temperature: 0.1
             }
           }),
           signal: AbortSignal.timeout(90000)
         });
       } catch (directErr) {
-        console.warn("Direct fetch attempt failed:", directErr);
+        console.warn("Direct chat attempt failed:", directErr);
       }
 
+      // Retry without auth if 401 or 403
       if (response && !response.ok && (response.status === 401 || response.status === 403)) {
         try {
-          response = await fetch(targetUrl, {
+          response = await fetch(`${baseUrl}/api/chat`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              model: candidateModel,
+              messages: [
+                { role: 'system', content: chatSys },
+                { role: 'user', content: chatUser }
+              ],
+              stream: false,
+              keep_alive: "60m",
+              options: { num_predict: 65, temperature: 0.1 }
+            }),
+            signal: AbortSignal.timeout(90000)
+          });
+        } catch (e) {}
+      }
+
+      // 2. Fallback to /api/generate if /api/chat did not succeed
+      if (!response || !response.ok) {
+        try {
+          response = await fetch(`${baseUrl}/api/generate`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${aiKey}`,
+              'x-api-key': aiKey
+            },
             body: JSON.stringify({
               model: candidateModel,
               prompt: directPrompt,
               stream: false,
               keep_alive: "60m",
-              options: { num_predict: 85, temperature: 0.2 }
+              options: { num_predict: 65, temperature: 0.1 }
             }),
             signal: AbortSignal.timeout(90000)
           });
-        } catch (e) {}
+        } catch (genErr) {}
       }
 
       if (response && !response.ok && response.status === 404) {
@@ -666,15 +699,18 @@ Student: ${sName} | Goal: ${sDegree} in ${sDomain} | CGPA: ${sCgpa}/10 | Budget:
 
         for (const alt of altModels) {
           try {
-            const altRes = await fetch(targetUrl, {
+            const altRes = await fetch(`${baseUrl}/api/chat`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${aiKey}`, 'x-api-key': aiKey },
               body: JSON.stringify({
                 model: alt,
-                prompt: directPrompt,
+                messages: [
+                  { role: 'system', content: chatSys },
+                  { role: 'user', content: chatUser }
+                ],
                 stream: false,
                 keep_alive: "60m",
-                options: { num_predict: 85, temperature: 0.2 }
+                options: { num_predict: 65, temperature: 0.1 }
               }),
               signal: AbortSignal.timeout(90000)
             });
@@ -689,7 +725,7 @@ Student: ${sName} | Goal: ${sDegree} in ${sDomain} | CGPA: ${sCgpa}/10 | Budget:
 
       if (response && response.ok) {
         const data = await response.json();
-        const freshSummary = (data.response || data.message?.content || data.choices?.[0]?.message?.content || '').trim();
+        const freshSummary = (data.message?.content || data.response || data.choices?.[0]?.message?.content || '').trim();
         if (freshSummary) {
           setResult(prev => {
             if (!prev) return prev;
@@ -849,13 +885,15 @@ Student: ${sName} | Goal: ${sDegree} in ${sDomain} | CGPA: ${sCgpa}/10 | Budget:
           if (data.aiStrictness) setAiStrictness(data.aiStrictness);
           let localEp = "";
           try { localEp = localStorage.getItem('learn_overseas_custom_ai_endpoint') || ""; } catch (e) {}
-          if (!localEp && data.aiEndpoint) {
-            const clean = cleanAndNormalizeAiUrl(data.aiEndpoint);
-            setCustomAiEndpoint(clean);
-            try { localStorage.setItem('learn_overseas_custom_ai_endpoint', clean); } catch (e) {}
-          } else if (localEp && !data.aiEndpoint) {
-            saveSettings({ aiEndpoint: cleanAndNormalizeAiUrl(localEp) });
+          if (localEp && (localEp.includes('entrepreneurs-psp-navigate-maternity') || localEp.includes('your-tunnel-subdomain'))) {
+            localEp = "";
           }
+          const epToUse = data.aiEndpoint && !data.aiEndpoint.includes('entrepreneurs-psp-navigate-maternity') && !data.aiEndpoint.includes('your-tunnel-subdomain')
+            ? data.aiEndpoint
+            : (localEp || 'https://millions-librarian-consumer-desktops.trycloudflare.com/api/generate');
+          const clean = cleanAndNormalizeAiUrl(epToUse);
+          setCustomAiEndpoint(clean);
+          try { localStorage.setItem('learn_overseas_custom_ai_endpoint', clean); } catch (e) {}
         }
       })
       .catch(err => console.error('Error fetching settings:', err));
@@ -1048,9 +1086,9 @@ Student: ${sName} | Goal: ${sDegree} in ${sDomain} | CGPA: ${sCgpa}/10 | Budget:
         counselorId: currentUser ? currentUser.id : 1,
         realtimeFetching,
         existingColleges: appendMode && result ? result.recommendedColleges : undefined,
-        aiEndpoint: customAiEndpoint || (typeof window !== 'undefined' ? localStorage.getItem('learn_overseas_custom_ai_endpoint') || '' : ''),
+        aiEndpoint: customAiEndpoint || (typeof window !== 'undefined' ? localStorage.getItem('learn_overseas_custom_ai_endpoint') || '' : '') || 'https://millions-librarian-consumer-desktops.trycloudflare.com/api/generate',
         aiStrictness,
-        aiModel: aiHealthStatus?.model || aiHealthStatus?.models?.[0] || 'llama3.1'
+        aiModel: aiHealthStatus?.model || aiHealthStatus?.models?.[0] || 'llama3.1:latest'
       };
 
       let res = await fetch("/api/analyze", {
@@ -1118,7 +1156,7 @@ Student: ${sName} | Goal: ${sDegree} in ${sDomain} | CGPA: ${sCgpa}/10 | Budget:
 
       // Dual-Failsafe: If Netlify returned Tier 3 fallback due to serverless gateway cutoff,
       // and we have an active on-premise tunnel endpoint, seamlessly finish genuine AI generation from browser!
-      const directEp = customAiEndpoint || (typeof window !== 'undefined' ? localStorage.getItem('learn_overseas_custom_ai_endpoint') || '' : '');
+      const directEp = customAiEndpoint || (typeof window !== 'undefined' ? localStorage.getItem('learn_overseas_custom_ai_endpoint') || '' : '') || 'https://millions-librarian-consumer-desktops.trycloudflare.com/api/generate';
       if (!data.isAiGenerated && directEp) {
         generateAiSummaryDirectly(data, directEp);
       } 
@@ -1181,9 +1219,9 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
           compareCountryIndex: i,
           totalCompareCountries: compareCountries.length,
           realtimeFetching: false,
-          aiEndpoint: customAiEndpoint || (typeof window !== 'undefined' ? localStorage.getItem('learn_overseas_custom_ai_endpoint') || '' : ''),
+          aiEndpoint: customAiEndpoint || (typeof window !== 'undefined' ? localStorage.getItem('learn_overseas_custom_ai_endpoint') || '' : '') || 'https://millions-librarian-consumer-desktops.trycloudflare.com/api/generate',
           aiStrictness,
-          aiModel: aiHealthStatus?.model || aiHealthStatus?.models?.[0] || 'llama3.1'
+          aiModel: aiHealthStatus?.model || aiHealthStatus?.models?.[0] || 'llama3.1:latest'
         };
         let res = await fetch("/api/analyze", {
           method: "POST",
@@ -1269,7 +1307,7 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
           body: JSON.stringify(studentWithComparison)
         }).catch(() => {});
 
-        const directEp = customAiEndpoint || (typeof window !== 'undefined' ? localStorage.getItem('learn_overseas_custom_ai_endpoint') || '' : '');
+        const directEp = customAiEndpoint || (typeof window !== 'undefined' ? localStorage.getItem('learn_overseas_custom_ai_endpoint') || '' : '') || 'https://millions-librarian-consumer-desktops.trycloudflare.com/api/generate';
         if (!studentWithComparison.isAiGenerated && directEp) {
           generateAiSummaryDirectly(studentWithComparison, directEp);
         }
@@ -2950,7 +2988,7 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
                               <div>
                                 <p className="text-xs font-bold text-slate-200">
                                   {aiHealthStatus?.status === 'connected'
-                                    ? `AI Engine Connected (${aiHealthStatus.model || 'llama3.1'})`
+                                    ? `AI Engine Connected (${aiHealthStatus.model || 'llama3.1:latest'})`
                                     : 'AI Engine Offline / Disconnected'}
                                 </p>
                                 <p className="text-[11px] text-slate-500 truncate max-w-xs md:max-w-md">
@@ -2996,7 +3034,7 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
                                     localStorage.setItem('learn_overseas_custom_ai_endpoint', val);
                                   } catch (err) {}
                                 }}
-                                placeholder="https://your-tunnel.trycloudflare.com/api/generate"
+                                placeholder="https://millions-librarian-consumer-desktops.trycloudflare.com/api/generate"
                                 className="flex-1 px-4 py-3 bg-[#0A0A0B] border border-white/10 rounded-xl text-sm text-slate-200 outline-none focus:border-[#FC7133]/50 shadow-inner font-mono text-xs"
                               />
                               <button

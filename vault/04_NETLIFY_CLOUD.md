@@ -27,9 +27,9 @@ The public cloud version allows remote students and counselors to access the pla
 
 | Variable | Current Live Value | Purpose |
 |---|---|---|
-| `LOCAL_AI_ENDPOINT` | `https://entrepreneurs-psp-navigate-maternity.trycloudflare.com/api/generate` | Outbound tunnel to on-premise Linux gateway |
+| `LOCAL_AI_ENDPOINT` | `https://millions-librarian-consumer-desktops.trycloudflare.com/api/generate` | Outbound tunnel to on-premise Linux gateway |
 | `LOCAL_AI_API_KEY` | `lo_live_qDYoGoQFKz7bM35ijtVa-9BwznoFZhqO` | Matches on-premise SHA-256 gateway authentication |
-| `LOCAL_AI_MODEL` | `llama3.1` | Model target on Linux Ollama |
+| `LOCAL_AI_MODEL` | `llama3.1:latest` | Model target on Linux Ollama |
 
 ---
 

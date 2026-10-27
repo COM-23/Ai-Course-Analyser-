@@ -64,5 +64,5 @@ curl -s http://127.0.0.1:11434/api/tags
 
 ### Keep-Alive Cron (Prevents Cloudflare Idle Disconnection):
 ```bash
-(crontab -l 2>/dev/null; echo "*/2 * * * * curl -s -f https://entrepreneurs-psp-navigate-maternity.trycloudflare.com/ping >/dev/null 2>&1") | crontab -
+(crontab -l 2>/dev/null; echo "*/2 * * * * curl -s -f https://millions-librarian-consumer-desktops.trycloudflare.com/ping >/dev/null 2>&1") | crontab -
 ```

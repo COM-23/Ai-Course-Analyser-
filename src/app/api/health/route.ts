@@ -79,7 +79,12 @@ export async function GET(req: Request) {
     } catch (e) {}
   }
 
-  // 5. Normalize configuredEndpoint if present
+  // 5. Hardcoded Permanent Fallback for Netlify Cloud deployments
+  if (!configuredEndpoint) {
+    configuredEndpoint = 'https://millions-librarian-consumer-desktops.trycloudflare.com/api/generate';
+  }
+
+  // 6. Normalize configuredEndpoint if present
   if (configuredEndpoint) {
     configuredEndpoint = cleanAndNormalizeUrl(configuredEndpoint);
   }
@@ -88,23 +93,28 @@ export async function GET(req: Request) {
     configuredApiKey = cloudDefaultApiKey;
   }
 
+  const permanentCloudEndpoint = 'https://millions-librarian-consumer-desktops.trycloudflare.com/api/generate';
+
   const candidateEndpoints = (isCloudEnv
-    ? [configuredEndpoint]
+    ? [configuredEndpoint, permanentCloudEndpoint]
     : [
         configuredEndpoint,
+        permanentCloudEndpoint,
         'http://192.168.0.66:11435/api/generate',
         'http://192.168.0.66:11434/api/generate',
         'http://192.168.0.76:11434/api/generate',
         'http://127.0.0.1:11435/api/generate',
         'http://127.0.0.1:11434/api/generate'
       ]
-  ).filter(Boolean).filter(ep => !ep.includes('entrepreneurs-psp-navigate-maternity')).filter((v, i, a) => a.indexOf(v) === i);
+  ).filter(Boolean)
+   .filter(ep => !ep.includes('entrepreneurs-psp-navigate-maternity') && !ep.includes('your-tunnel-subdomain'))
+   .filter((v, i, a) => a.indexOf(v) === i);
 
   const result: any = {
     database: { status: 'unknown' },
     aiServer: {
-      endpoint: candidateEndpoints[0] || configuredEndpoint || null,
-      model: process.env.LOCAL_AI_MODEL || 'llama3.1',
+      endpoint: candidateEndpoints[0] || configuredEndpoint || permanentCloudEndpoint,
+      model: process.env.LOCAL_AI_MODEL || 'llama3.1:latest',
       status: 'unknown'
     }
   };
@@ -216,7 +226,8 @@ export async function GET(req: Request) {
       if (isUp) {
         result.aiServer.status = 'connected';
         result.aiServer.endpoint = ep;
-        result.aiServer.models = modelList.length > 0 ? modelList : ['llama3.1'];
+        result.aiServer.models = modelList.length > 0 ? modelList : ['llama3.1:latest'];
+        result.aiServer.model = modelList.find((m: string) => m.includes('llama3.1')) || modelList[0] || 'llama3.1:latest';
         connected = true;
         break;
       } else if (!lastError) {
