@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 
-export async function GET() {
+export async function GET(req: Request) {
   const isCloudEnv = !!(
     process.env.NETLIFY ||
     process.env.VERCEL ||
@@ -17,23 +17,42 @@ export async function GET() {
   let configuredEndpoint = (process.env.LOCAL_AI_ENDPOINT || '').trim();
   let configuredApiKey = (process.env.LOCAL_AI_API_KEY || '').trim();
 
-  // Check if Super Admin configured an AI endpoint in UI Settings table
+  // 1. Check if client passed an endpoint via query param or header
   try {
-    const settingRow = getDb().prepare("SELECT value FROM settings WHERE id = 'aiEndpoint'").get() as any;
-    if (settingRow && settingRow.value) {
-      const parsed = JSON.parse(settingRow.value);
-      if (typeof parsed === 'string' && parsed.trim()) {
-        configuredEndpoint = parsed.trim();
-        if (!configuredEndpoint.endsWith('/api/generate')) {
-          configuredEndpoint = configuredEndpoint.replace(/\/+$/, '') + '/api/generate';
-        }
-      }
+    const url = new URL(req.url);
+    const paramEp = url.searchParams.get('endpoint') || req.headers.get('x-ai-endpoint');
+    if (paramEp && paramEp.trim()) {
+      configuredEndpoint = paramEp.trim();
     }
   } catch (e) {}
 
-  // Check if local .tunnel-status.json exists or dead tunnel is configured
-  if (!configuredEndpoint || configuredEndpoint.includes('headline-alive') || configuredEndpoint.includes('blink-competitions')) {
-    configuredEndpoint = cloudDefaultEndpoint;
+  // 2. Check if Super Admin configured an AI endpoint in UI Settings table
+  if (!configuredEndpoint) {
+    try {
+      const settingRow = getDb().prepare("SELECT value FROM settings WHERE id = 'aiEndpoint'").get() as any;
+      if (settingRow && settingRow.value) {
+        const parsed = JSON.parse(settingRow.value);
+        if (typeof parsed === 'string' && parsed.trim()) {
+          configuredEndpoint = parsed.trim();
+        }
+      }
+    } catch (e) {}
+  }
+
+  // Normalize configuredEndpoint if present
+  if (configuredEndpoint) {
+    if (!configuredEndpoint.endsWith('/api/generate')) {
+      configuredEndpoint = configuredEndpoint.replace(/\/+$/, '') + '/api/generate';
+    }
+  }
+
+  // Check if dead tunnel is configured
+  if (configuredEndpoint.includes('headline-alive') || configuredEndpoint.includes('blink-competitions') || configuredEndpoint.includes('entrepreneurs-psp-navigate-maternity')) {
+    configuredEndpoint = '';
+  }
+
+  // Check if local .tunnel-status.json exists
+  if (!configuredEndpoint) {
     try {
       const fs = require('fs');
       const path = require('path');
@@ -61,8 +80,8 @@ export async function GET() {
   }
 
   const candidateEndpoints = (isCloudEnv
-    ? [normalize(cloudDefaultEndpoint), normalize(configuredEndpoint)]
-    : [normalize(configuredEndpoint), normalize(cloudDefaultEndpoint), 'http://192.168.0.66:11434/api/generate', 'http://127.0.0.1:11434/api/generate']
+    ? [normalize(configuredEndpoint), normalize(cloudDefaultEndpoint)]
+    : [normalize(configuredEndpoint), normalize(cloudDefaultEndpoint), 'http://192.168.0.76:11434/api/generate', 'http://192.168.0.66:11434/api/generate', 'http://127.0.0.1:11434/api/generate']
   ).filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
 
   const result: any = {

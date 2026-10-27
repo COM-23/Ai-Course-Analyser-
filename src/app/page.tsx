@@ -489,14 +489,40 @@ export default function Home() {
   const [aiHealthStatus, setAiHealthStatus] = useState<any>(null);
   const [isCheckingAi, setIsCheckingAi] = useState(false);
 
-  const checkAiHealth = async () => {
+  // Restore custom AI endpoint and strictness from localStorage immediately on client mount
+  useEffect(() => {
+    try {
+      const savedEndpoint = localStorage.getItem('learn_overseas_custom_ai_endpoint');
+      if (savedEndpoint) {
+        setCustomAiEndpoint(savedEndpoint);
+      }
+      const savedStrictness = localStorage.getItem('learn_overseas_ai_strictness');
+      if (savedStrictness) {
+        setAiStrictness(savedStrictness);
+      }
+    } catch (e) {}
+  }, []);
+
+  const checkAiHealth = async (endpointOverride?: string) => {
     setIsCheckingAi(true);
     try {
-      const res = await fetch('/api/health');
+      let savedEp = "";
+      try {
+        savedEp = localStorage.getItem('learn_overseas_custom_ai_endpoint') || "";
+      } catch (e) {}
+      const ep = endpointOverride !== undefined ? endpointOverride : (customAiEndpoint || savedEp);
+      const url = ep ? `/api/health?endpoint=${encodeURIComponent(ep)}` : '/api/health';
+      const res = await fetch(url, {
+        headers: ep ? { 'x-ai-endpoint': ep } : {}
+      });
       const data = await res.json();
       setAiHealthStatus(data?.aiServer);
-      if (data?.aiServer?.endpoint && !customAiEndpoint) {
+      // Only set customAiEndpoint if neither state nor localStorage has an endpoint
+      if (data?.aiServer?.endpoint && !customAiEndpoint && !savedEp) {
         setCustomAiEndpoint(data.aiServer.endpoint);
+        try {
+          localStorage.setItem('learn_overseas_custom_ai_endpoint', data.aiServer.endpoint);
+        } catch (e) {}
       }
     } catch (e: any) {
       setAiHealthStatus({ status: 'unreachable', error: e?.message });
@@ -617,7 +643,9 @@ export default function Home() {
           
           if (data.agencyName) setAgencyName(data.agencyName);
           if (data.aiStrictness) setAiStrictness(data.aiStrictness);
-          if (data.aiEndpoint) setCustomAiEndpoint(data.aiEndpoint);
+          let localEp = "";
+          try { localEp = localStorage.getItem('learn_overseas_custom_ai_endpoint') || ""; } catch (e) {}
+          if (!localEp && data.aiEndpoint) setCustomAiEndpoint(data.aiEndpoint);
         }
       })
       .catch(err => console.error('Error fetching settings:', err));
@@ -628,16 +656,25 @@ export default function Home() {
 
   const saveSettings = async (payload: any) => {
     try {
+      if (payload.aiEndpoint !== undefined) {
+        try { localStorage.setItem('learn_overseas_custom_ai_endpoint', payload.aiEndpoint); } catch (e) {}
+      }
+      if (payload.aiStrictness !== undefined) {
+        try { localStorage.setItem('learn_overseas_ai_strictness', payload.aiStrictness); } catch (e) {}
+      }
       const res = await fetch('/api/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
+      if (payload.aiEndpoint) {
+        checkAiHealth(payload.aiEndpoint);
+      }
       if (res.ok) alert('Settings saved successfully!');
-      else alert('Failed to save settings.');
+      else alert('Settings saved in browser storage!');
     } catch (err) {
       console.error(err);
-      alert('An error occurred while saving.');
+      alert('Settings saved in browser storage!');
     }
   };
 
@@ -784,7 +821,9 @@ export default function Home() {
         targetIntake: intake,
         counselorId: currentUser ? currentUser.id : 1,
         realtimeFetching,
-        existingColleges: appendMode && result ? result.recommendedColleges : undefined
+        existingColleges: appendMode && result ? result.recommendedColleges : undefined,
+        aiEndpoint: customAiEndpoint || (typeof window !== 'undefined' ? localStorage.getItem('learn_overseas_custom_ai_endpoint') || '' : ''),
+        aiStrictness
       };
 
       let res = await fetch("/api/analyze", {
@@ -884,6 +923,8 @@ export default function Home() {
           compareCountryIndex: i,
           totalCompareCountries: compareCountries.length,
           realtimeFetching,
+          aiEndpoint: customAiEndpoint || (typeof window !== 'undefined' ? localStorage.getItem('learn_overseas_custom_ai_endpoint') || '' : ''),
+          aiStrictness
         };
         let res = await fetch("/api/analyze", {
           method: "POST",
@@ -2571,7 +2612,7 @@ export default function Home() {
                             </h3>
                             <button
                               type="button"
-                              onClick={checkAiHealth}
+                              onClick={() => checkAiHealth(customAiEndpoint)}
                               disabled={isCheckingAi}
                               className="text-xs px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10 transition-colors flex items-center gap-1.5"
                             >
@@ -2622,13 +2663,35 @@ export default function Home() {
 
                           <div className="space-y-2 pt-2 border-t border-white/5">
                             <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Cloud AI Endpoint (Tunnel URL)</label>
-                            <input
-                              type="text"
-                              value={customAiEndpoint}
-                              onChange={(e) => setCustomAiEndpoint(e.target.value)}
-                              placeholder="https://your-tunnel.trycloudflare.com/api/generate"
-                              className="w-full px-4 py-3 bg-[#0A0A0B] border border-white/10 rounded-xl text-sm text-slate-200 outline-none focus:border-[#FC7133]/50 shadow-inner font-mono text-xs"
-                            />
+                            <div className="flex gap-2">
+                              <input
+                                type="text"
+                                value={customAiEndpoint}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setCustomAiEndpoint(val);
+                                  try {
+                                    localStorage.setItem('learn_overseas_custom_ai_endpoint', val);
+                                  } catch (err) {}
+                                }}
+                                placeholder="https://your-tunnel.trycloudflare.com/api/generate"
+                                className="flex-1 px-4 py-3 bg-[#0A0A0B] border border-white/10 rounded-xl text-sm text-slate-200 outline-none focus:border-[#FC7133]/50 shadow-inner font-mono text-xs"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  try {
+                                    localStorage.setItem('learn_overseas_custom_ai_endpoint', customAiEndpoint);
+                                    localStorage.setItem('learn_overseas_ai_strictness', aiStrictness);
+                                  } catch (err) {}
+                                  saveSettings({ agencyName, aiStrictness, aiEndpoint: customAiEndpoint });
+                                  checkAiHealth(customAiEndpoint);
+                                }}
+                                className="px-4 py-3 bg-[#FC7133] hover:bg-[#e65d20] text-white font-bold rounded-xl text-xs whitespace-nowrap transition-colors shadow-lg shadow-[#FC7133]/25 flex items-center gap-1.5"
+                              >
+                                Save & Connect
+                              </button>
+                            </div>
                             <p className="text-xs text-slate-500 mt-1">
                               Auto-managed by <code>tunnel-service.js</code>. You can also paste a permanent Cloudflare Named Tunnel or Ngrok domain here anytime.
                             </p>

@@ -89,6 +89,7 @@ const server = http.createServer((req, res) => {
   const candidateHosts = [
     OLLAMA_HOST,
     OLLAMA_HOST !== '127.0.0.1' ? '127.0.0.1' : null,
+    OLLAMA_HOST !== '192.168.0.76' ? '192.168.0.76' : null,
     OLLAMA_HOST !== '192.168.0.66' ? '192.168.0.66' : null
   ].filter(Boolean);
 

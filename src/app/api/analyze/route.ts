@@ -284,7 +284,7 @@ class LocalHeuristicBrain {
       });
   }
 
-  async analyze(text: string, context: string, manualCountry: string, manualIntake: string, aiStrictness: string = "standard", realtimeFetching: boolean = false) {
+  async analyze(text: string, context: string, manualCountry: string, manualIntake: string, aiStrictness: string = "standard", realtimeFetching: boolean = false, customAiEndpoint: string = "") {
     // Strictly identify real cloud serverless environments (Netlify / Vercel / AWS Lambda)
     const isCloudEnv = !!(
       process.env.NETLIFY ||
@@ -1340,27 +1340,36 @@ Counselor AI Summary:`;
             const cloudDefaultEndpoint = 'https://entrepreneurs-psp-navigate-maternity.trycloudflare.com/api/generate';
             const cloudDefaultApiKey = 'lo_live_qDYoGoQFKz7bM35ijtVa-9BwznoFZhqO';
 
-            let aiEndpoint = (process.env.LOCAL_AI_ENDPOINT || '').trim();
+            let aiEndpoint = (customAiEndpoint || process.env.LOCAL_AI_ENDPOINT || '').trim();
             let aiApiKey = (process.env.LOCAL_AI_API_KEY || '').trim();
             const aiModel = process.env.LOCAL_AI_MODEL || 'llama3.1';
 
-            // Check if Super Admin configured an AI endpoint in UI Settings table
-            try {
-                const settingRow = getDb().prepare("SELECT value FROM settings WHERE id = 'aiEndpoint'").get() as any;
-                if (settingRow && settingRow.value) {
-                    const parsed = JSON.parse(settingRow.value);
-                    if (typeof parsed === 'string' && parsed.trim()) {
-                        aiEndpoint = parsed.trim();
-                        if (!aiEndpoint.endsWith('/api/generate')) {
-                            aiEndpoint = aiEndpoint.replace(/\/+$/, '') + '/api/generate';
+            // Check if Super Admin configured an AI endpoint in UI Settings table (if not passed by client)
+            if (!aiEndpoint) {
+                try {
+                    const settingRow = getDb().prepare("SELECT value FROM settings WHERE id = 'aiEndpoint'").get() as any;
+                    if (settingRow && settingRow.value) {
+                        const parsed = JSON.parse(settingRow.value);
+                        if (typeof parsed === 'string' && parsed.trim()) {
+                            aiEndpoint = parsed.trim();
                         }
                     }
-                }
-            } catch (e) {}
+                } catch (e) {}
+            }
 
-            // Check if local .tunnel-status.json exists or dead tunnel is configured
-            if (!aiEndpoint || aiEndpoint.includes('headline-alive') || aiEndpoint.includes('blink-competitions')) {
-                aiEndpoint = cloudDefaultEndpoint;
+            if (aiEndpoint) {
+                if (!aiEndpoint.endsWith('/api/generate')) {
+                    aiEndpoint = aiEndpoint.replace(/\/+$/, '') + '/api/generate';
+                }
+            }
+
+            // Filter out dead obsolete tunnels
+            if (aiEndpoint.includes('headline-alive') || aiEndpoint.includes('blink-competitions') || aiEndpoint.includes('entrepreneurs-psp-navigate-maternity')) {
+                aiEndpoint = '';
+            }
+
+            // Check if local .tunnel-status.json exists
+            if (!aiEndpoint) {
                 try {
                     const nodeFs = require('fs');
                     const nodePath = require('path');
@@ -1388,8 +1397,8 @@ Counselor AI Summary:`;
             }
 
             const candidateEndpoints = (isCloudEnv
-                ? [normalize(cloudDefaultEndpoint), normalize(aiEndpoint)]
-                : [normalize(aiEndpoint), normalize(cloudDefaultEndpoint), 'http://192.168.0.66:11434/api/generate', 'http://127.0.0.1:11434/api/generate']
+                ? [normalize(aiEndpoint), normalize(cloudDefaultEndpoint)]
+                : [normalize(aiEndpoint), normalize(cloudDefaultEndpoint), 'http://192.168.0.76:11434/api/generate', 'http://192.168.0.66:11434/api/generate', 'http://127.0.0.1:11434/api/generate']
             ).filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
 
             // Allow up to 20s in cloud serverless (within maxDuration 26s) so Ollama has full time to finish reasoning & generation.
@@ -1507,19 +1516,22 @@ export async function POST(req: NextRequest) {
        throw new Error("No data provided. Please upload a PDF or enter text.");
     }
 
-    let aiStrictness = "standard";
-    try {
-      const row = getDb().prepare("SELECT value FROM settings WHERE id = 'aiStrictness'").get() as any;
-      if (row && row.value) {
-        aiStrictness = JSON.parse(row.value);
+    let aiStrictness = body.aiStrictness || "standard";
+    const customAiEndpoint = (body.aiEndpoint || body.customAiEndpoint || "").trim();
+    if (!body.aiStrictness) {
+      try {
+        const row = getDb().prepare("SELECT value FROM settings WHERE id = 'aiStrictness'").get() as any;
+        if (row && row.value) {
+          aiStrictness = JSON.parse(row.value);
+        }
+      } catch (e) {
+        console.error("Failed to read aiStrictness from DB, defaulting to standard.");
       }
-    } catch (e) {
-      console.error("Failed to read aiStrictness from DB, defaulting to standard.");
     }
 
     // 2. USE THE CUSTOM INDEPENDENT BRAIN
     const brain = new LocalHeuristicBrain();
-    const analysis = await brain.analyze(extractedText, additionalContext || "", destinationCountry, targetIntake, aiStrictness, realtimeFetching);
+    const analysis = await brain.analyze(extractedText, additionalContext || "", destinationCountry, targetIntake, aiStrictness, realtimeFetching, customAiEndpoint);
 
     try {
       if (!primaryStudentId) {
