@@ -1333,6 +1333,24 @@ Student: ${extractedName} | Goal: ${degreeObjective} in ${degreeDisplay} | CGPA:
 
             const cloudDefaultApiKey = 'lo_live_qDYoGoQFKz7bM35ijtVa-9BwznoFZhqO';
 
+            function cleanAndNormalizeUrl(input: string): string {
+                if (!input) return '';
+                let str = input.trim();
+                if (!str.startsWith('http://') && !str.startsWith('https://')) {
+                    if (str.startsWith('192.168.') || str.startsWith('10.') || str.startsWith('127.0.0.1') || str.startsWith('localhost')) {
+                        str = 'http://' + str;
+                    } else {
+                        str = 'https://' + str;
+                    }
+                }
+                str = str.replace(/\/+$/, '');
+                if (!str.endsWith('/api/generate')) {
+                    str = str.replace(/\/api\/?$/, '');
+                    str = str + '/api/generate';
+                }
+                return str;
+            }
+
             let aiEndpoint = (customAiEndpoint || process.env.LOCAL_AI_ENDPOINT || '').trim();
             let aiApiKey = (process.env.LOCAL_AI_API_KEY || '').trim();
             const aiModel = process.env.LOCAL_AI_MODEL || 'llama3.1';
@@ -1351,14 +1369,7 @@ Student: ${extractedName} | Goal: ${degreeObjective} in ${degreeDisplay} | CGPA:
             }
 
             if (aiEndpoint) {
-                if (!aiEndpoint.endsWith('/api/generate')) {
-                    aiEndpoint = aiEndpoint.replace(/\/+$/, '') + '/api/generate';
-                }
-            }
-
-            // Only clean obsolete tunnels if user didn't explicitly pass customAiEndpoint
-            if (!customAiEndpoint && (aiEndpoint.includes('headline-alive') || aiEndpoint.includes('blink-competitions') || aiEndpoint.includes('entrepreneurs-psp-navigate-maternity'))) {
-                aiEndpoint = '';
+                aiEndpoint = cleanAndNormalizeUrl(aiEndpoint);
             }
 
             // Check if local .tunnel-status.json exists
@@ -1370,7 +1381,7 @@ Student: ${extractedName} | Goal: ${degreeObjective} in ${degreeDisplay} | CGPA:
                     if (nodeFs.existsSync(statusPath)) {
                         const statusData = JSON.parse(nodeFs.readFileSync(statusPath, 'utf-8'));
                         if (statusData && statusData.endpoint) {
-                            aiEndpoint = statusData.endpoint;
+                            aiEndpoint = cleanAndNormalizeUrl(statusData.endpoint);
                         }
                     }
                 } catch (e) {}
@@ -1380,18 +1391,9 @@ Student: ${extractedName} | Goal: ${degreeObjective} in ${degreeDisplay} | CGPA:
                 aiApiKey = cloudDefaultApiKey;
             }
 
-            function normalize(u: string) {
-                if (!u) return '';
-                let clean = u.trim().replace(/\/+$/, '');
-                if (!clean.endsWith('/api/generate')) {
-                    clean = clean + '/api/generate';
-                }
-                return clean;
-            }
-
             const candidateEndpoints = (isCloudEnv
-                ? [normalize(aiEndpoint)]
-                : [normalize(aiEndpoint), 'http://192.168.0.76:11434/api/generate', 'http://192.168.0.66:11434/api/generate', 'http://127.0.0.1:11434/api/generate']
+                ? [aiEndpoint]
+                : [aiEndpoint, 'http://192.168.0.76:11434/api/generate', 'http://192.168.0.66:11434/api/generate', 'http://127.0.0.1:11434/api/generate']
             ).filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
 
             // Cloud serverless timeout is 23s (within Netlify 26s hard gateway limit).
@@ -1425,6 +1427,30 @@ Student: ${extractedName} | Goal: ${degreeObjective} in ${degreeDisplay} | CGPA:
                         }),
                         signal: AbortSignal.timeout(timeoutMs)
                     });
+
+                    // If 401 or 403, retry without auth headers (direct Ollama tunnel without gateway)
+                    if (ollamaResponse && (ollamaResponse.status === 401 || ollamaResponse.status === 403)) {
+                        try {
+                            const fallbackResponse = await fetch(targetUrl, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    model: aiModel,
+                                    prompt: prompt,
+                                    stream: false,
+                                    keep_alive: -1,
+                                    options: {
+                                        num_predict: tokenLimit,
+                                        temperature: 0.2
+                                    }
+                                }),
+                                signal: AbortSignal.timeout(timeoutMs)
+                            });
+                            if (fallbackResponse && fallbackResponse.ok) {
+                                ollamaResponse = fallbackResponse;
+                            }
+                        } catch (e) {}
+                    }
 
                     if (ollamaResponse && ollamaResponse.ok) {
                         break;

@@ -2,6 +2,24 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 
+function cleanAndNormalizeUrl(input: string): string {
+  if (!input) return '';
+  let str = input.trim();
+  if (!str.startsWith('http://') && !str.startsWith('https://')) {
+    if (str.startsWith('192.168.') || str.startsWith('10.') || str.startsWith('127.0.0.1') || str.startsWith('localhost')) {
+      str = 'http://' + str;
+    } else {
+      str = 'https://' + str;
+    }
+  }
+  str = str.replace(/\/+$/, '');
+  if (!str.endsWith('/api/generate')) {
+    str = str.replace(/\/api\/?$/, '');
+    str = str + '/api/generate';
+  }
+  return str;
+}
+
 export async function GET(req: Request) {
   const isCloudEnv = !!(
     process.env.NETLIFY ||
@@ -11,7 +29,6 @@ export async function GET(req: Request) {
     (typeof process.cwd === 'function' && process.cwd().startsWith('/var/task'))
   );
 
-  const cloudDefaultEndpoint = 'https://entrepreneurs-psp-navigate-maternity.trycloudflare.com/api/generate';
   const cloudDefaultApiKey = 'lo_live_qDYoGoQFKz7bM35ijtVa-9BwznoFZhqO';
 
   let configuredEndpoint = (process.env.LOCAL_AI_ENDPOINT || '').trim();
@@ -39,25 +56,12 @@ export async function GET(req: Request) {
     } catch (e) {}
   }
 
-  // Normalize configuredEndpoint if present
+  // 3. Normalize configuredEndpoint if present
   if (configuredEndpoint) {
-    if (!configuredEndpoint.endsWith('/api/generate')) {
-      configuredEndpoint = configuredEndpoint.replace(/\/+$/, '') + '/api/generate';
-    }
+    configuredEndpoint = cleanAndNormalizeUrl(configuredEndpoint);
   }
 
-  // Check if dead tunnel is configured (only if not explicitly passed by user)
-  let isUserPassed = false;
-  try {
-    const urlCheck = new URL(req.url);
-    isUserPassed = !!(urlCheck.searchParams.get('endpoint') || req.headers.get('x-ai-endpoint'));
-  } catch (e) {}
-
-  if (!isUserPassed && (configuredEndpoint.includes('headline-alive') || configuredEndpoint.includes('blink-competitions') || configuredEndpoint.includes('entrepreneurs-psp-navigate-maternity'))) {
-    configuredEndpoint = '';
-  }
-
-  // Check if local .tunnel-status.json exists
+  // 4. Check if local .tunnel-status.json exists (on-premise local dev/server)
   if (!configuredEndpoint) {
     try {
       const fs = require('fs');
@@ -66,7 +70,7 @@ export async function GET(req: Request) {
       if (fs.existsSync(statusPath)) {
         const statusData = JSON.parse(fs.readFileSync(statusPath, 'utf-8'));
         if (statusData && statusData.endpoint) {
-          configuredEndpoint = statusData.endpoint;
+          configuredEndpoint = cleanAndNormalizeUrl(statusData.endpoint);
         }
       }
     } catch (e) {}
@@ -76,24 +80,15 @@ export async function GET(req: Request) {
     configuredApiKey = cloudDefaultApiKey;
   }
 
-  function normalize(u: string) {
-    if (!u) return '';
-    let clean = u.trim().replace(/\/+$/, '');
-    if (!clean.endsWith('/api/generate')) {
-      clean = clean + '/api/generate';
-    }
-    return clean;
-  }
-
   const candidateEndpoints = (isCloudEnv
-    ? [normalize(configuredEndpoint)]
-    : [normalize(configuredEndpoint), 'http://192.168.0.76:11434/api/generate', 'http://192.168.0.66:11434/api/generate', 'http://127.0.0.1:11434/api/generate']
+    ? [configuredEndpoint]
+    : [configuredEndpoint, 'http://192.168.0.76:11434/api/generate', 'http://192.168.0.66:11434/api/generate', 'http://127.0.0.1:11434/api/generate']
   ).filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
 
   const result: any = {
     database: { status: 'unknown' },
     aiServer: {
-      endpoint: candidateEndpoints[0] || configuredEndpoint,
+      endpoint: candidateEndpoints[0] || configuredEndpoint || null,
       model: process.env.LOCAL_AI_MODEL || 'llama3.1',
       status: 'unknown'
     }
@@ -114,37 +109,35 @@ export async function GET(req: Request) {
     };
   }
 
-  // 2. Check Candidate AI Server Endpoints in sequence
+  if (candidateEndpoints.length === 0) {
+    result.aiServer.status = 'unconfigured';
+    result.aiServer.error = 'No AI tunnel URL configured yet. Enter your Cloudflare URL in Settings to connect.';
+    return NextResponse.json(result);
+  }
+
+  // 2. Multi-Probe candidate AI endpoints with resilient fallback
   let lastError = '';
   let connected = false;
 
   for (const ep of candidateEndpoints) {
     try {
-      const baseUrl = ep.replace(/\/api\/generate\/?$/, '');
-      const headers: Record<string, string> = {};
+      const baseUrl = ep.replace(/\/api\/generate\/?$/, '').replace(/\/+$/, '');
+      const authHeaders: Record<string, string> = {};
       if (configuredApiKey) {
-        headers['Authorization'] = `Bearer ${configuredApiKey}`;
-        headers['x-api-key'] = configuredApiKey;
+        authHeaders['Authorization'] = `Bearer ${configuredApiKey}`;
+        authHeaders['x-api-key'] = configuredApiKey;
       }
 
       let isUp = false;
       let modelList: string[] = [];
+      const probeTimeout = 8000; // 8 seconds allows Cloudflare edge handshake to warm up
 
-      // 1. Fast ping check
-      try {
-        const pingRes = await fetch(`${baseUrl}/ping`, {
-          method: 'GET',
-          signal: AbortSignal.timeout(isCloudEnv ? 3000 : 2000)
-        });
-        if (pingRes.ok) isUp = true;
-      } catch (e) {}
-
-      // 2. Authenticated tags check
+      // Probe 1: Direct Ollama /api/tags (with auth headers)
       try {
         const tagsRes = await fetch(`${baseUrl}/api/tags`, {
           method: 'GET',
-          headers,
-          signal: AbortSignal.timeout(isCloudEnv ? 4000 : 3000)
+          headers: authHeaders,
+          signal: AbortSignal.timeout(probeTimeout)
         });
         if (tagsRes.ok) {
           const data = await tagsRes.json();
@@ -152,7 +145,57 @@ export async function GET(req: Request) {
           isUp = true;
         }
       } catch (e: any) {
-        lastError = `${ep}: ${e?.message || String(e)}`;
+        lastError = e?.message || String(e);
+      }
+
+      // Probe 2: Ollama /api/tags (without auth headers, in case direct tunnel to 11434)
+      if (!isUp) {
+        try {
+          const noAuthRes = await fetch(`${baseUrl}/api/tags`, {
+            method: 'GET',
+            signal: AbortSignal.timeout(probeTimeout)
+          });
+          if (noAuthRes.ok) {
+            const data = await noAuthRes.json();
+            modelList = data.models?.map((m: any) => m.name) || [];
+            isUp = true;
+          }
+        } catch (e: any) {}
+      }
+
+      // Probe 3: Lightweight gateway ping
+      if (!isUp) {
+        try {
+          const pingRes = await fetch(`${baseUrl}/ping`, {
+            method: 'GET',
+            signal: AbortSignal.timeout(4000)
+          });
+          if (pingRes.ok) isUp = true;
+        } catch (e) {}
+      }
+
+      // Probe 4: Root endpoint (standard Ollama returns "Ollama is running" with 200 OK)
+      if (!isUp) {
+        try {
+          const rootRes = await fetch(`${baseUrl}/`, {
+            method: 'GET',
+            signal: AbortSignal.timeout(probeTimeout)
+          });
+          if (rootRes.ok) {
+            isUp = true;
+          }
+        } catch (e) {}
+      }
+
+      // Probe 5: Ollama version check
+      if (!isUp) {
+        try {
+          const verRes = await fetch(`${baseUrl}/api/version`, {
+            method: 'GET',
+            signal: AbortSignal.timeout(probeTimeout)
+          });
+          if (verRes.ok) isUp = true;
+        } catch (e) {}
       }
 
       if (isUp) {
@@ -162,7 +205,7 @@ export async function GET(req: Request) {
         connected = true;
         break;
       } else if (!lastError) {
-        lastError = `Unreachable: ${ep}`;
+        lastError = `Target endpoint ${ep} did not respond to health probes.`;
       }
     } catch (e: any) {
       lastError = `${ep}: ${e?.message || String(e)}`;
@@ -176,4 +219,3 @@ export async function GET(req: Request) {
 
   return NextResponse.json(result);
 }
-

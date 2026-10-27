@@ -492,12 +492,30 @@ export default function Home() {
   const [aiHealthStatus, setAiHealthStatus] = useState<any>(null);
   const [isCheckingAi, setIsCheckingAi] = useState(false);
 
+  function cleanAndNormalizeAiUrl(input: string): string {
+    if (!input) return '';
+    let str = input.trim();
+    if (!str.startsWith('http://') && !str.startsWith('https://')) {
+      if (str.startsWith('192.168.') || str.startsWith('10.') || str.startsWith('127.0.0.1') || str.startsWith('localhost')) {
+        str = 'http://' + str;
+      } else {
+        str = 'https://' + str;
+      }
+    }
+    str = str.replace(/\/+$/, '');
+    if (!str.endsWith('/api/generate')) {
+      str = str.replace(/\/api\/?$/, '');
+      str = str + '/api/generate';
+    }
+    return str;
+  }
+
   // Restore custom AI endpoint and strictness from localStorage immediately on client mount
   useEffect(() => {
     try {
       const savedEndpoint = localStorage.getItem('learn_overseas_custom_ai_endpoint');
       if (savedEndpoint) {
-        setCustomAiEndpoint(savedEndpoint);
+        setCustomAiEndpoint(cleanAndNormalizeAiUrl(savedEndpoint));
       }
       const savedStrictness = localStorage.getItem('learn_overseas_ai_strictness');
       if (savedStrictness) {
@@ -517,18 +535,20 @@ export default function Home() {
       try {
         savedEp = localStorage.getItem('learn_overseas_custom_ai_endpoint') || "";
       } catch (e) {}
-      const ep = endpointOverride !== undefined ? endpointOverride : (customAiEndpoint || savedEp);
-      const url = ep ? `/api/health?endpoint=${encodeURIComponent(ep)}` : '/api/health';
+      const targetEp = cleanAndNormalizeAiUrl(endpointOverride !== undefined ? endpointOverride : (customAiEndpoint || savedEp));
+      const url = targetEp ? `/api/health?endpoint=${encodeURIComponent(targetEp)}` : '/api/health';
       const res = await fetch(url, {
-        headers: ep ? { 'x-ai-endpoint': ep } : {}
+        headers: targetEp ? { 'x-ai-endpoint': targetEp } : {}
       });
       const data = await res.json();
       setAiHealthStatus(data?.aiServer);
-      // Only set customAiEndpoint if neither state nor localStorage has an endpoint
-      if (data?.aiServer?.endpoint && !customAiEndpoint && !savedEp) {
-        setCustomAiEndpoint(data.aiServer.endpoint);
+      if (data?.aiServer?.status === 'connected' && data?.aiServer?.endpoint) {
+        const connectedEp = cleanAndNormalizeAiUrl(data.aiServer.endpoint);
+        if (!customAiEndpoint || customAiEndpoint !== connectedEp) {
+          setCustomAiEndpoint(connectedEp);
+        }
         try {
-          localStorage.setItem('learn_overseas_custom_ai_endpoint', data.aiServer.endpoint);
+          localStorage.setItem('learn_overseas_custom_ai_endpoint', connectedEp);
         } catch (e) {}
       }
     } catch (e: any) {
@@ -555,10 +575,7 @@ export default function Home() {
       return;
     }
 
-    let targetUrl = ep.replace(/\/+$/, '');
-    if (!targetUrl.endsWith('/api/generate')) {
-      targetUrl = targetUrl + '/api/generate';
-    }
+    let targetUrl = cleanAndNormalizeAiUrl(ep);
 
     setIsGeneratingAiDirectly(true);
     try {
@@ -586,7 +603,7 @@ Student: ${sName} | Goal: ${sDegree} in ${sDomain} | CGPA: ${sCgpa}/10 | Budget:
 
       const aiKey = 'lo_live_qDYoGoQFKz7bM35ijtVa-9BwznoFZhqO';
 
-      const response = await fetch(targetUrl, {
+      let response = await fetch(targetUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -605,6 +622,23 @@ Student: ${sName} | Goal: ${sDegree} in ${sDomain} | CGPA: ${sCgpa}/10 | Budget:
         }),
         signal: AbortSignal.timeout(90000)
       });
+
+      if (!response.ok && (response.status === 401 || response.status === 403)) {
+        try {
+          response = await fetch(targetUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              model: 'llama3.1',
+              prompt: directPrompt,
+              stream: false,
+              keep_alive: -1,
+              options: { num_predict: 85, temperature: 0.2 }
+            }),
+            signal: AbortSignal.timeout(90000)
+          });
+        } catch (e) {}
+      }
 
       if (response.ok) {
         const data = await response.json();
@@ -767,7 +801,13 @@ Student: ${sName} | Goal: ${sDegree} in ${sDomain} | CGPA: ${sCgpa}/10 | Budget:
           if (data.aiStrictness) setAiStrictness(data.aiStrictness);
           let localEp = "";
           try { localEp = localStorage.getItem('learn_overseas_custom_ai_endpoint') || ""; } catch (e) {}
-          if (!localEp && data.aiEndpoint) setCustomAiEndpoint(data.aiEndpoint);
+          if (!localEp && data.aiEndpoint) {
+            const clean = cleanAndNormalizeAiUrl(data.aiEndpoint);
+            setCustomAiEndpoint(clean);
+            try { localStorage.setItem('learn_overseas_custom_ai_endpoint', clean); } catch (e) {}
+          } else if (localEp && !data.aiEndpoint) {
+            saveSettings({ aiEndpoint: cleanAndNormalizeAiUrl(localEp) });
+          }
         }
       })
       .catch(err => console.error('Error fetching settings:', err));
@@ -779,6 +819,7 @@ Student: ${sName} | Goal: ${sDegree} in ${sDomain} | CGPA: ${sCgpa}/10 | Budget:
   const saveSettings = async (payload: any) => {
     try {
       if (payload.aiEndpoint !== undefined) {
+        payload.aiEndpoint = cleanAndNormalizeAiUrl(payload.aiEndpoint);
         try { localStorage.setItem('learn_overseas_custom_ai_endpoint', payload.aiEndpoint); } catch (e) {}
       }
       if (payload.aiStrictness !== undefined) {
@@ -2909,12 +2950,16 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
                               <button
                                 type="button"
                                 onClick={() => {
+                                  const normalized = cleanAndNormalizeAiUrl(customAiEndpoint);
+                                  if (normalized) {
+                                    setCustomAiEndpoint(normalized);
+                                  }
                                   try {
-                                    localStorage.setItem('learn_overseas_custom_ai_endpoint', customAiEndpoint);
+                                    localStorage.setItem('learn_overseas_custom_ai_endpoint', normalized);
                                     localStorage.setItem('learn_overseas_ai_strictness', aiStrictness);
                                   } catch (err) {}
-                                  saveSettings({ agencyName, aiStrictness, aiEndpoint: customAiEndpoint });
-                                  checkAiHealth(customAiEndpoint);
+                                  saveSettings({ agencyName, aiStrictness, aiEndpoint: normalized });
+                                  checkAiHealth(normalized);
                                 }}
                                 className="px-4 py-3 bg-[#FC7133] hover:bg-[#e65d20] text-white font-bold rounded-xl text-xs whitespace-nowrap transition-colors shadow-lg shadow-[#FC7133]/25 flex items-center gap-1.5"
                               >
