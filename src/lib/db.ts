@@ -56,17 +56,7 @@ export function getDb(): DatabaseAdapter {
 
   if (isServerless) {
     const tmpPath = '/tmp/students.db';
-    let needsExtract = false;
-    if (!fs.existsSync(tmpPath)) {
-      needsExtract = true;
-    } else {
-      try {
-        const stat = fs.statSync(tmpPath);
-        if (stat.size < 10000000) needsExtract = true;
-      } catch (e) {
-        needsExtract = true;
-      }
-    }
+    const needsExtract = !fs.existsSync(tmpPath);
 
     if (needsExtract) {
       try {

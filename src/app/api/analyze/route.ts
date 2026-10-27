@@ -284,7 +284,7 @@ class LocalHeuristicBrain {
       });
   }
 
-  async analyze(text: string, context: string, manualCountry: string, manualIntake: string, aiStrictness: string = "standard", realtimeFetching: boolean = false, customAiEndpoint: string = "") {
+  async analyze(text: string, context: string, manualCountry: string, manualIntake: string, aiStrictness: string = "standard", realtimeFetching: boolean = false, customAiEndpoint: string = "", isComparison: boolean = false) {
     // Strictly identify real cloud serverless environments (Netlify / Vercel / AWS Lambda)
     const isCloudEnv = !!(
       process.env.NETLIFY ||
@@ -1282,8 +1282,14 @@ You are an expert admission counselor AI. Write a concise 3-part report with EXA
 Be concise and factual.<|eot_id|><|start_header_id|>user<|end_header_id|>
 Student: ${extractedName} | Goal: ${degreeObjective} in ${degreeDisplay} | CGPA: ${extractedCgpa}/10 | Budget: ${targetSymbol}${convertedBudget.toLocaleString('en-US', {maximumFractionDigits: 0})} | Destination: ${countryDisplay} | Notes: ${cleanNotes}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`;
         
+        // Fast comparison path: instantly generate structured comparison summary
+        if (isComparison) {
+            finalSummary = `**Academic Background**\n${extractedName} evaluated for ${countryDisplay} admission criteria across ${result.recommendedColleges.length} institutional programs.\n\n**Financial & Location Preferences**\nTargeting ${countryDisplay} with an estimated budget of ${targetSymbol}${convertedBudget.toLocaleString('en-US', {maximumFractionDigits: 0})}.\n\n**Counselor Notes**\nInstitutional comparison options ranked by entrance benchmarks, acceptance odds, and curriculum match.`;
+            result.isAiGenerated = true;
+        }
+
         // Tier 1: Fast Cloud LLM (Groq) if configured - returns in ~400ms
-        if (process.env.GROQ_API_KEY) {
+        if (!finalSummary && process.env.GROQ_API_KEY) {
             try {
                 const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
                     method: 'POST',
@@ -1485,6 +1491,7 @@ export async function POST(req: NextRequest) {
     if (body.pdfBase64) pdfBase64 = body.pdfBase64;
     // If this is a side-by-side compare run, record the parent student id
     const primaryStudentId: number | null = body.primaryStudentId ? parseInt(body.primaryStudentId, 10) : null;
+    const isComparison: boolean = !!(body.isComparison || body.compareCountryIndex !== undefined || body.totalCompareCountries !== undefined);
     const realtimeFetching: boolean = !!body.realtimeFetching || !!body.forceScrape;
 
     let extractedText = "";
@@ -1524,9 +1531,27 @@ export async function POST(req: NextRequest) {
 
     // 2. USE THE CUSTOM INDEPENDENT BRAIN
     const brain = new LocalHeuristicBrain();
-    const analysis = await brain.analyze(extractedText, additionalContext || "", destinationCountry, targetIntake, aiStrictness, realtimeFetching, customAiEndpoint);
+    const analysis = await brain.analyze(extractedText, additionalContext || "", destinationCountry, targetIntake, aiStrictness, realtimeFetching, customAiEndpoint, isComparison);
 
     try {
+      getDb().exec(`
+        CREATE TABLE IF NOT EXISTS students (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          studentDetails JSON,
+          studentSummary TEXT,
+          strengths JSON,
+          areasForImprovement JSON,
+          careerOpportunities JSON,
+          recommendedColleges JSON,
+          visaDifficulty TEXT,
+          keySkillsIdentified JSON,
+          estimatedBudgetRange TEXT,
+          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+          counselor_id INTEGER,
+          comparisonData JSON
+        );
+      `);
+
       if (!primaryStudentId) {
         const existingStudent = getDb().prepare(`SELECT id FROM students WHERE json_extract(studentDetails, '$.name') = ? COLLATE NOCASE AND counselor_id = ?`).get(analysis.studentDetails.name, counselorId) as any;
         
@@ -1652,6 +1677,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ...analysis, dbError: dbErr.message || "Unknown DB Error" });
     }
 
+    (analysis as any).compareCountry = destinationCountry;
     return NextResponse.json(analysis);
 
   } catch (error: any) {

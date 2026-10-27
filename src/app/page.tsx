@@ -822,25 +822,37 @@ Student: ${sName} | Goal: ${sDegree} in ${sDomain} | CGPA: ${sCgpa}/10 | Budget:
       }
     } catch (e) {}
 
-    fetch(`/api/students`)
+    fetch(`/api/students`, { credentials: 'include' })
       .then(res => res.json())
       .then(data => {
         if (Array.isArray(data)) {
+          // If server database is a fresh container and has 0 students, but client has cached students, re-populate server DB!
+          if (data.length === 0 && cached.length > 0) {
+            fetch('/api/students', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify(cached)
+            }).catch(() => {});
+          }
+
           // Filter out any explicitly deleted IDs
           const cleanServerData = data.filter((s: any) => !deletedIds.includes(s.id));
           
-          // Merge server data with any locally cached students/comparisons
-          const mergedMap = new Map<any, AnalysisResult>();
+          // Merge server data with any locally cached students/comparisons using normalized string keys
+          const mergedMap = new Map<string, AnalysisResult>();
           for (const s of cleanServerData) {
-            mergedMap.set(s.id, s);
+            const key = String(s.id || s.studentDetails?.name || Math.random());
+            mergedMap.set(key, s);
           }
           for (const c of cached) {
             if (!deletedIds.includes(c.id)) {
-              const existing = mergedMap.get(c.id);
+              const key = String(c.id || c.studentDetails?.name || Math.random());
+              const existing = mergedMap.get(key);
               if (!existing) {
-                mergedMap.set(c.id, c);
+                mergedMap.set(key, c);
               } else if (c.comparisonData && c.comparisonData.length > 0 && (!existing.comparisonData || existing.comparisonData.length === 0)) {
-                mergedMap.set(c.id, { ...existing, comparisonData: c.comparisonData });
+                mergedMap.set(key, { ...existing, comparisonData: c.comparisonData });
               }
             }
           }
@@ -1006,6 +1018,14 @@ Student: ${sName} | Goal: ${sDegree} in ${sDomain} | CGPA: ${sCgpa}/10 | Budget:
         return newHistory;
       }); 
 
+      // Background sync to server SQLite DB
+      fetch('/api/students', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(data)
+      }).catch(() => {});
+
       // Dual-Failsafe: If Netlify returned Tier 3 fallback due to serverless gateway cutoff,
       // and we have an active on-premise tunnel endpoint, seamlessly finish genuine AI generation from browser!
       const directEp = customAiEndpoint || (typeof window !== 'undefined' ? localStorage.getItem('learn_overseas_custom_ai_endpoint') || '' : '');
@@ -1022,7 +1042,10 @@ Student: ${sName} | Goal: ${sDegree} in ${sDomain} | CGPA: ${sCgpa}/10 | Budget:
 
 
   const handleCompareAnalyze = async () => {
-    if (inputType === "pdf" && !file) return;
+    if (inputType === "pdf" && !file && !result && !manualText.trim()) {
+      setError("Please select a student or upload a profile to run comparison.");
+      return;
+    }
     if (compareCountries.length === 0) return;
     setCompareExpandedCollegeIdx(null);
     setCompareLoading(true);
@@ -1039,7 +1062,20 @@ Student: ${sName} | Goal: ${sDegree} in ${sDomain} | CGPA: ${sCgpa}/10 | Budget:
           reader.readAsDataURL(file);
         });
       }
-      const context = inputType === "text" ? manualText + "\n\n" + additionalContext : additionalContext;
+      let context = inputType === "text" ? manualText + "\n\n" + additionalContext : additionalContext;
+      if (!pdfBase64 && (!context || context.trim().length === 0) && result?.studentDetails) {
+        const sd = result.studentDetails;
+        const anySd = sd as any;
+        context = `Student Profile for Comparison:
+Name: ${sd.name || 'Student'}
+Target Degree: ${sd.degreeObjective || anySd.targetCourse || anySd.degree || "Master's"}
+Target Major/Domain: ${sd.primaryDomain || anySd.domain || 'Engineering/Management'}
+CGPA: ${sd.cgpa || '8.0'}/10
+Test Scores / English: ${sd.testScores || anySd.englishProficiency || 'IELTS 7.0'}
+Work Experience: ${sd.workExperience || 'None'}
+Budget Range: ${result.estimatedBudgetRange || anySd.budget || '$25,000 - $45,000 / year'}
+${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
+      }
       const accumulated: AnalysisResult[] = [];
       let activeStudentId = result?.id ?? null;
       
@@ -1054,7 +1090,8 @@ Student: ${sName} | Goal: ${sDegree} in ${sDomain} | CGPA: ${sCgpa}/10 | Budget:
           primaryStudentId: activeStudentId,
           compareCountryIndex: i,
           totalCompareCountries: compareCountries.length,
-          realtimeFetching,
+          realtimeFetching: false,
+          isComparison: true,
           aiEndpoint: customAiEndpoint || (typeof window !== 'undefined' ? localStorage.getItem('learn_overseas_custom_ai_endpoint') || '' : ''),
           aiStrictness
         };
@@ -1089,6 +1126,10 @@ Student: ${sName} | Goal: ${sDegree} in ${sDomain} | CGPA: ${sCgpa}/10 | Budget:
           throw new Error(errMsg);
         }
         const data = await res.json();
+        data.compareCountry = country;
+        if (!data.studentDetails) data.studentDetails = { ...result?.studentDetails, destinationCountry: country };
+        else if (!data.studentDetails.destinationCountry) data.studentDetails.destinationCountry = country;
+
         if (data.dbError) {
           console.warn(`Saving ${country} comparison to DB had warning:`, data.dbError);
         }
@@ -1103,7 +1144,7 @@ Student: ${sName} | Goal: ${sDegree} in ${sDomain} | CGPA: ${sCgpa}/10 | Budget:
       // Attach comparisonData directly to active student result and history cache
       if (accumulated.length > 0) {
         const baseStudent = result || accumulated[0];
-        const targetId = activeStudentId ?? baseStudent?.id;
+        const targetId = activeStudentId ?? baseStudent?.id ?? Date.now();
         const studentWithComparison: AnalysisResult = {
           ...baseStudent,
           id: targetId,
@@ -1129,6 +1170,14 @@ Student: ${sName} | Goal: ${sDegree} in ${sDomain} | CGPA: ${sCgpa}/10 | Budget:
           } catch (e) {}
           return updated;
         });
+
+        // Background sync to server SQLite DB
+        fetch('/api/students', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify(studentWithComparison)
+        }).catch(() => {});
 
         const directEp = customAiEndpoint || (typeof window !== 'undefined' ? localStorage.getItem('learn_overseas_custom_ai_endpoint') || '' : '');
         if (!studentWithComparison.isAiGenerated && directEp) {
@@ -1172,11 +1221,13 @@ Student: ${sName} | Goal: ${sDegree} in ${sDomain} | CGPA: ${sCgpa}/10 | Budget:
     if (student.comparisonData && student.comparisonData.length > 0) {
       setCompareMode(true);
       setCompareResults(student.comparisonData);
-      setCompareCountries(student.comparisonData.map(c => c.compareCountry || "Unknown"));
+      setCompareCountries(student.comparisonData.map((c: any) => c.compareCountry || c.studentDetails?.destinationCountry || "Country"));
+      setActiveCompareTab(0);
     } else {
       setCompareMode(false);
       setCompareResults([]);
       setCompareCountries([]);
+      setActiveCompareTab(-1);
     }
     setActiveTab("analyzer");
   };
@@ -1794,7 +1845,7 @@ Student: ${sName} | Goal: ${sDegree} in ${sDomain} | CGPA: ${sCgpa}/10 | Budget:
                       onClick={() => setActiveCompareTab(ci)}
                       className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${activeCompareTab === ci ? 'bg-[#FC7133]/25 text-[#FC7133] border border-[#FC7133]/40' : 'text-slate-500 hover:text-slate-300'}`}
                     >
-                      🌍 {compareCountries[ci]}
+                      🌍 {cr.compareCountry || cr.studentDetails?.destinationCountry || compareCountries[ci] || `Country ${ci + 1}`}
                       <span className="px-1.5 py-0.5 bg-white/10 rounded-md text-[9px]">{cr.recommendedColleges?.length ?? 0}</span>
                     </button>
                   ))}
@@ -2452,9 +2503,16 @@ Student: ${sName} | Goal: ${sDegree} in ${sDomain} | CGPA: ${sCgpa}/10 | Budget:
                           </span>
                         </td>
                         <td className="p-5">
-                          <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-emerald-500/10 text-emerald-400`}>
-                            Analyzed
-                          </span>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-emerald-500/10 text-emerald-400`}>
+                              Analyzed
+                            </span>
+                            {student.comparisonData && student.comparisonData.length > 0 && (
+                              <span className="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-[#FC7133]/15 text-[#FC7133] border border-[#FC7133]/30">
+                                ⚡ {student.comparisonData.length} Countries
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="p-5">
                           <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
