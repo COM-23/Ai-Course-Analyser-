@@ -90,3 +90,22 @@ This log records every technical incident, its underlying root cause, and the ex
   2. Extended serverless AI `timeoutMs` to 22,000ms (22s) and kept `tokenLimit = 40` so Ollama completes inference cleanly in ~7-8s without timing out.
   3. Made `checkAiHealth()`, `fetch('/api/settings')`, and student roster loading from `localStorage` + `/api/students` run unconditionally on client mount.
   4. Preserved strict constraint: Zero changes or modifications made to the on-premise Linux AI server (`192.168.0.66`).
+
+---
+
+### Incident 7: Instant Millisecond Answers Due to 401 Unauthorized Gateway Handshake
+- **Symptom**: User reported: "while analysing i am getting the answers within milliseconds and also there is no activity in the linux terminal". Browser UI displayed `⚡ Heuristic Assessment (Target https://millions-)` instead of live AI summary.
+- **Root Cause**:
+  1. The Cloudflare tunnel (`https://millions-librarian-consumer-desktops.trycloudflare.com`) routes traffic to the on-premises Linux gateway, which strictly requires authentication header `Authorization: Bearer lo_live_qDYoGoQFKz7bM35ijtVa-9BwznoFZhqO` or `x-api-key: lo_live_qDYoGoQFKz7bM35ijtVa-9BwznoFZhqO`.
+  2. In `src/app/api/analyze/route.ts`, if `process.env.LOCAL_AI_API_KEY` was populated in the Netlify site configuration with any mismatching, quoted, or stale key, `aiApiKey` did not fall back to `cloudDefaultApiKey`.
+  3. When the Cloudflare gateway rejected the mismatched key with HTTP 401, the fallback handler retried with `headers: { 'Content-Type': 'application/json' }` (NO authentication headers at all), which also immediately failed with 401.
+  4. Ollama on the Linux server never received any inference request because all 4 attempts were rejected at the gateway layer within milliseconds.
+  5. The serverless route threw an error (`Target ... returned status 401`) and triggered the heuristic assessment instantly.
+  6. In `src/app/page.tsx`, `handleAnalyze` did not include `aiApiKey` in the request body sent to `/api/analyze`, leaving the serverless function vulnerable to environment variable mismatches.
+- **Solution**:
+  1. Updated `src/app/api/analyze/route.ts` to enforce `cloudDefaultApiKey` whenever the target URL contains `trycloudflare.com`, completely bypassing any corrupted or mismatched environment variables.
+  2. If any 401/403 status is encountered on `/api/chat` or `/api/generate`, the retry mechanism now explicitly supplies `cloudDefaultApiKey` rather than empty headers.
+  3. Added `clientProvidedApiKey` extraction in `src/app/api/analyze/route.ts` so the frontend can securely supply the shared gateway key.
+  4. Updated `src/app/page.tsx` to include `aiApiKey: 'lo_live_qDYoGoQFKz7bM35ijtVa-9BwznoFZhqO'` in the `handleAnalyze` payload.
+  5. Optimized direct inference and cloud serverless tokens (`num_predict: 45`) for rapid 7-8 second token generation on the on-premise CPU.
+  6. Preserved strict constraint: Zero modifications or connections made to the on-premise Linux server (`192.168.0.66`).

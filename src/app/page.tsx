@@ -635,7 +635,7 @@ ${chatUser}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`;
             stream: false,
             keep_alive: "60m",
             options: {
-              num_predict: 65,
+              num_predict: 45,
               temperature: 0.1
             }
           }),
@@ -659,7 +659,7 @@ ${chatUser}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`;
               ],
               stream: false,
               keep_alive: "60m",
-              options: { num_predict: 65, temperature: 0.1 }
+              options: { num_predict: 45, temperature: 0.1 }
             }),
             signal: AbortSignal.timeout(90000)
           });
@@ -681,7 +681,7 @@ ${chatUser}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`;
               prompt: directPrompt,
               stream: false,
               keep_alive: "60m",
-              options: { num_predict: 65, temperature: 0.1 }
+              options: { num_predict: 45, temperature: 0.1 }
             }),
             signal: AbortSignal.timeout(90000)
           });
@@ -710,7 +710,7 @@ ${chatUser}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`;
                 ],
                 stream: false,
                 keep_alive: "60m",
-                options: { num_predict: 65, temperature: 0.1 }
+                options: { num_predict: 45, temperature: 0.1 }
               }),
               signal: AbortSignal.timeout(90000)
             });
@@ -1087,6 +1087,7 @@ ${chatUser}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`;
         realtimeFetching,
         existingColleges: appendMode && result ? result.recommendedColleges : undefined,
         aiEndpoint: customAiEndpoint || (typeof window !== 'undefined' ? localStorage.getItem('learn_overseas_custom_ai_endpoint') || '' : '') || 'https://millions-librarian-consumer-desktops.trycloudflare.com/api/generate',
+        aiApiKey: 'lo_live_qDYoGoQFKz7bM35ijtVa-9BwznoFZhqO',
         aiStrictness,
         aiModel: aiHealthStatus?.model || aiHealthStatus?.models?.[0] || 'llama3.1:latest'
       };

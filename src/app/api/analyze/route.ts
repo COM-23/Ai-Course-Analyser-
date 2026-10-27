@@ -284,7 +284,7 @@ class LocalHeuristicBrain {
       });
   }
 
-  async analyze(text: string, context: string, manualCountry: string, manualIntake: string, aiStrictness: string = "standard", realtimeFetching: boolean = false, customAiEndpoint: string = "", isComparison: boolean = false, requestedModel: string = "") {
+  async analyze(text: string, context: string, manualCountry: string, manualIntake: string, aiStrictness: string = "standard", realtimeFetching: boolean = false, customAiEndpoint: string = "", isComparison: boolean = false, requestedModel: string = "", clientProvidedApiKey: string = "") {
     // Strictly identify real cloud serverless environments (Netlify / Vercel / AWS Lambda)
     const isCloudEnv = !!(
       process.env.NETLIFY ||
@@ -1398,18 +1398,18 @@ Student: ${extractedName} | Goal: ${degreeObjective} in ${degreeDisplay} | CGPA:
 
             const candidateEndpoints = rawCandidates.filter((v, i, a) => a.indexOf(v) === i);
 
-            let aiApiKey = (process.env.LOCAL_AI_API_KEY || '').trim();
             const aiModel = (requestedModel || process.env.LOCAL_AI_MODEL || 'llama3.1:latest').trim();
-
-            if (!aiApiKey) {
+            let rawKey = clientProvidedApiKey || (process.env.LOCAL_AI_API_KEY || '').trim().replace(/^["']|["']$/g, '');
+            let aiApiKey = rawKey;
+            if (!aiApiKey || aiApiKey === 'undefined' || aiApiKey === 'null' || aiApiKey.includes('your-')) {
                 aiApiKey = cloudDefaultApiKey;
             }
 
-            // Extended cloud serverless timeout (22s) so Ollama finishes inference cleanly without aborting.
-            // On local on-premise servers (Windows / Mac / Linux), allow 120 seconds.
-            const timeoutMs = isCloudEnv ? 22000 : 120000;
-            // 40 tokens generates a crisp 3-part structured summary in ~7-8s on Linux CPU
-            const tokenLimit = isCloudEnv ? 40 : 75;
+            // Cloud serverless timeout capped at 8500ms to stay safely under Netlify 10s execution ceiling
+            // Local on-premise servers (Windows / Mac / Linux) allow 120 seconds.
+            const timeoutMs = isCloudEnv ? 8500 : 120000;
+            // 45 tokens generates a crisp 3-part structured summary in ~7-8s on Linux CPU
+            const tokenLimit = isCloudEnv ? 45 : 75;
 
             let ollamaResponse: Response | null = null;
             let lastAiError: any = null;
@@ -1421,10 +1421,13 @@ Student: ${extractedName} | Goal: ${degreeObjective} in ${degreeDisplay} | CGPA:
             for (const targetUrl of candidateEndpoints) {
                 try {
                     const baseUrl = targetUrl.replace(/\/api\/generate\/?$/, '').replace(/\/api\/chat\/?$/, '').replace(/\/+$/, '');
+                    
+                    // Gateway authentication: trycloudflare.com endpoints strictly require cloudDefaultApiKey
+                    const keyToUse = baseUrl.includes('trycloudflare.com') ? cloudDefaultApiKey : aiApiKey;
                     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-                    if (aiApiKey) {
-                        headers['Authorization'] = `Bearer ${aiApiKey}`;
-                        headers['x-api-key'] = aiApiKey;
+                    if (keyToUse) {
+                        headers['Authorization'] = `Bearer ${keyToUse}`;
+                        headers['x-api-key'] = keyToUse;
                     }
 
                     let modelToUse = aiModel;
@@ -1445,9 +1448,7 @@ Student: ${extractedName} | Goal: ${degreeObjective} in ${degreeDisplay} | CGPA:
                                 keep_alive: "60m",
                                 options: {
                                     num_predict: tokenLimit,
-                                    temperature: 0.1,
-                                    num_ctx: 512,
-                                    num_thread: 8
+                                    temperature: 0.1
                                 }
                             }),
                             signal: AbortSignal.timeout(timeoutMs)
@@ -1456,9 +1457,14 @@ Student: ${extractedName} | Goal: ${degreeObjective} in ${degreeDisplay} | CGPA:
                         if (chatRes && chatRes.ok) {
                             ollamaResponse = chatRes;
                         } else if (chatRes && (chatRes.status === 401 || chatRes.status === 403)) {
+                            // Retry with verified on-premise gateway secret key
                             const retryChat = await fetch(`${baseUrl}/api/chat`, {
                                 method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    'Authorization': `Bearer ${cloudDefaultApiKey}`,
+                                    'x-api-key': cloudDefaultApiKey
+                                },
                                 body: JSON.stringify({
                                     model: modelToUse,
                                     messages: [
@@ -1489,20 +1495,22 @@ Student: ${extractedName} | Goal: ${degreeObjective} in ${degreeDisplay} | CGPA:
                                 keep_alive: "60m",
                                 options: {
                                     num_predict: tokenLimit,
-                                    temperature: 0.1,
-                                    num_ctx: 512,
-                                    num_thread: 8
+                                    temperature: 0.1
                                 }
                             }),
                             signal: AbortSignal.timeout(timeoutMs)
                         });
 
-                        // If 401 or 403, retry without auth headers (direct Ollama tunnel without gateway)
+                        // If 401 or 403, retry with verified on-premise gateway secret key
                         if (ollamaResponse && (ollamaResponse.status === 401 || ollamaResponse.status === 403)) {
                             try {
                                 const fallbackResponse = await fetch(`${baseUrl}/api/generate`, {
                                     method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
+                                    headers: {
+                                        'Content-Type': 'application/json',
+                                        'Authorization': `Bearer ${cloudDefaultApiKey}`,
+                                        'x-api-key': cloudDefaultApiKey
+                                    },
                                     body: JSON.stringify({
                                         model: modelToUse,
                                         prompt: prompt,
@@ -1510,7 +1518,7 @@ Student: ${extractedName} | Goal: ${degreeObjective} in ${degreeDisplay} | CGPA:
                                         keep_alive: "60m",
                                         options: {
                                             num_predict: tokenLimit,
-                                            temperature: 0.2
+                                            temperature: 0.1
                                         }
                                     }),
                                     signal: AbortSignal.timeout(timeoutMs)
@@ -1655,6 +1663,7 @@ export async function POST(req: NextRequest) {
     let aiStrictness = body.aiStrictness || "standard";
     const customAiEndpoint = (body.aiEndpoint || body.customAiEndpoint || "").trim();
     const requestedModel = (body.aiModel || body.model || "").trim();
+    const clientProvidedApiKey = (body.aiApiKey || body.apiKey || "").trim().replace(/^["']|["']$/g, '');
 
     // Dynamically persist client-supplied live endpoint into settings table for cross-request resiliency
     if (customAiEndpoint) {
@@ -1683,7 +1692,7 @@ export async function POST(req: NextRequest) {
 
     // 2. USE THE CUSTOM INDEPENDENT BRAIN
     const brain = new LocalHeuristicBrain();
-    const analysis = await brain.analyze(extractedText, additionalContext || "", destinationCountry, targetIntake, aiStrictness, realtimeFetching, customAiEndpoint, isComparison, requestedModel);
+    const analysis = await brain.analyze(extractedText, additionalContext || "", destinationCountry, targetIntake, aiStrictness, realtimeFetching, customAiEndpoint, isComparison, requestedModel, clientProvidedApiKey);
 
     try {
       getDb().exec(`
