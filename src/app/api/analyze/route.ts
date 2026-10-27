@@ -3,6 +3,9 @@ import { getDb } from "@/lib/db";
 import { getExchangeRates, FALLBACK_RATES } from "@/lib/currency";
 import * as cheerio from 'cheerio';
 import google from 'googlethis';
+import { jwtVerify } from 'jose';
+
+const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET || 'super-secret-default-key');
 
 // Local LLM integration migrated to Ollama (Llama 3.1 8B) for massive performance/reasoning improvements
 async function scrapeLiveUniversities(domain: string, country: string, degreeObjective: string) {
@@ -1631,7 +1634,32 @@ export async function POST(req: NextRequest) {
     additionalContext = body.additionalContext || body.context || "";
     destinationCountry = body.destinationCountry || body.manualCountry || "Not Decided";
     targetIntake = body.targetIntake || body.manualIntake || "Not Decided";
-    if (body.counselorId) counselorId = parseInt(body.counselorId, 10);
+
+    // Extract authenticated user for role-based counselor assignment
+    let authUser: any = null;
+    try {
+      const cookieHeader = req.headers.get('cookie') || '';
+      const authHeader = req.headers.get('authorization') || '';
+      let token = '';
+      const match = cookieHeader.match(/auth_token=([^;]+)/);
+      if (match) token = match[1];
+      else if (authHeader.startsWith('Bearer ')) token = authHeader.substring(7);
+      if (token) {
+        const verified = await jwtVerify(token, JWT_SECRET);
+        authUser = verified.payload;
+      }
+    } catch {}
+
+    if (authUser) {
+      if (authUser.role === 'super_admin' && body.counselorId) {
+        counselorId = parseInt(body.counselorId, 10);
+      } else if (authUser.id) {
+        counselorId = Number(authUser.id);
+      }
+    } else if (body.counselorId) {
+      counselorId = parseInt(body.counselorId, 10);
+    }
+
     if (body.pdfBase64) pdfBase64 = body.pdfBase64;
     // If this is a side-by-side compare run, record the parent student id
     const primaryStudentId: number | null = body.primaryStudentId ? parseInt(body.primaryStudentId, 10) : null;

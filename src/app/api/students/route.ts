@@ -13,72 +13,104 @@ const isCloudEnv = !!(
   (typeof process.cwd === 'function' && process.cwd().startsWith('/var/task'))
 );
 
-export async function GET(req: Request) {
+async function getAuthUser(req: Request) {
   try {
     const cookieHeader = req.headers.get('cookie') || '';
+    const authHeader = req.headers.get('authorization') || '';
+    let token = '';
     const match = cookieHeader.match(/auth_token=([^;]+)/);
-    if (!match && !isCloudEnv) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    
-    if (match) {
-      try {
-        await jwtVerify(match[1], JWT_SECRET);
-      } catch {
-        if (!isCloudEnv) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
-      }
+    if (match) token = match[1];
+    else if (authHeader.startsWith('Bearer ')) token = authHeader.substring(7);
+
+    if (!token) return null;
+    const { payload } = await jwtVerify(token, JWT_SECRET);
+    return payload as { id: number; name: string; username: string; role: string };
+  } catch {
+    return null;
+  }
+}
+
+function ensureTables(db: any) {
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS students (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        studentDetails JSON,
+        studentSummary TEXT,
+        strengths JSON,
+        areasForImprovement JSON,
+        careerOpportunities JSON,
+        recommendedColleges JSON,
+        visaDifficulty TEXT,
+        keySkillsIdentified JSON,
+        estimatedBudgetRange TEXT,
+        createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+        counselor_id INTEGER,
+        comparisonData JSON
+      );
+      CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT,
+        username TEXT UNIQUE,
+        passwordHash TEXT,
+        role TEXT,
+        createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+  } catch (e) {}
+}
+
+export async function GET(req: Request) {
+  try {
+    const user = await getAuthUser(req);
+    if (!user && !isCloudEnv) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const db = getDb();
-    try {
-      db.exec(`
-        CREATE TABLE IF NOT EXISTS students (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          studentDetails JSON,
-          studentSummary TEXT,
-          strengths JSON,
-          areasForImprovement JSON,
-          careerOpportunities JSON,
-          recommendedColleges JSON,
-          visaDifficulty TEXT,
-          keySkillsIdentified JSON,
-          estimatedBudgetRange TEXT,
-          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-          counselor_id INTEGER,
-          comparisonData JSON
-        );
-        CREATE TABLE IF NOT EXISTS users (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          name TEXT,
-          username TEXT UNIQUE,
-          passwordHash TEXT,
-          role TEXT,
-          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
-        );
-      `);
-    } catch (e) {}
+    ensureTables(db);
 
     const url = new URL(req.url);
     const requestedCounselorId = url.searchParams.get('counselorId');
+    const isSuperAdmin = user?.role === 'super_admin';
 
-    let rows;
-    if (requestedCounselorId && requestedCounselorId !== 'all') {
-      rows = db.prepare(`
-        SELECT students.*, users.name as counselorName 
-        FROM students 
-        LEFT JOIN users ON students.counselor_id = users.id 
-        WHERE counselor_id = ? 
-        ORDER BY students.createdAt DESC
-      `).all(requestedCounselorId);
+    let rows: any[] = [];
+    if (isSuperAdmin) {
+      // Superadmin has global visibility across all counselors, with optional counselor filter
+      if (requestedCounselorId && requestedCounselorId !== 'all') {
+        rows = db.prepare(`
+          SELECT students.*, users.name as counselorName 
+          FROM students 
+          LEFT JOIN users ON students.counselor_id = users.id 
+          WHERE students.counselor_id = ? 
+          ORDER BY students.createdAt DESC
+        `).all(Number(requestedCounselorId));
+      } else {
+        rows = db.prepare(`
+          SELECT students.*, users.name as counselorName 
+          FROM students 
+          LEFT JOIN users ON students.counselor_id = users.id 
+          ORDER BY students.createdAt DESC
+        `).all();
+      }
     } else {
-      // Shared roster across all counselors: everyone can view all evaluated profiles
+      // Counselor account: Strictly isolated to own students
+      const effectiveCounselorId = user?.id ? Number(user?.id) : (requestedCounselorId ? Number(requestedCounselorId) : 1);
+
+      // Prevent unauthorized cross-account access
+      if (user?.id && requestedCounselorId && requestedCounselorId !== 'all' && Number(requestedCounselorId) !== Number(user.id)) {
+        return NextResponse.json({ error: 'Access denied: You can only view your own assigned students.' }, { status: 403 });
+      }
+
       rows = db.prepare(`
         SELECT students.*, users.name as counselorName 
         FROM students 
         LEFT JOIN users ON students.counselor_id = users.id 
+        WHERE students.counselor_id = ? 
         ORDER BY students.createdAt DESC
-      `).all();
+      `).all(effectiveCounselorId);
     }
 
-    
     // Parse JSON strings back into objects safely
     const parseSafe = (val: any, fallback: any) => {
       if (!val) return fallback;
@@ -98,6 +130,7 @@ export async function GET(req: Request) {
       keySkillsIdentified: parseSafe(row.keySkillsIdentified, []),
       estimatedBudgetRange: row.estimatedBudgetRange || '',
       createdAt: row.createdAt,
+      counselor_id: row.counselor_id,
       counselorName: row.counselorName || 'Unknown Counselor',
       comparisonData: parseSafe(row.comparisonData, [])
     }));
@@ -111,12 +144,34 @@ export async function GET(req: Request) {
 
 export async function DELETE(req: Request) {
   try {
+    const user = await getAuthUser(req);
+    if (!user && !isCloudEnv) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const { id } = await req.json();
     if (!id) {
       return NextResponse.json({ error: 'Missing ID' }, { status: 400 });
     }
-    const stmt = getDb().prepare('DELETE FROM students WHERE id = ?');
-    stmt.run(id);
+
+    const db = getDb();
+    const isSuperAdmin = user?.role === 'super_admin';
+
+    if (isSuperAdmin) {
+      const stmt = db.prepare('DELETE FROM students WHERE id = ?');
+      stmt.run(id);
+    } else if (user?.id) {
+      // Counselors can only delete students assigned to their own account
+      const stmt = db.prepare('DELETE FROM students WHERE id = ? AND counselor_id = ?');
+      const result = stmt.run(id, Number(user.id));
+      if (result && result.changes === 0) {
+        return NextResponse.json({ error: 'Student not found or access denied.' }, { status: 403 });
+      }
+    } else {
+      const stmt = db.prepare('DELETE FROM students WHERE id = ?');
+      stmt.run(id);
+    }
+
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Failed to delete student from DB:', error);
@@ -126,12 +181,34 @@ export async function DELETE(req: Request) {
 
 export async function PATCH(req: Request) {
   try {
+    const user = await getAuthUser(req);
+    if (!user && !isCloudEnv) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const { id, studentSummary } = await req.json();
     if (!id || typeof studentSummary !== 'string') {
       return NextResponse.json({ error: 'Missing id or studentSummary' }, { status: 400 });
     }
-    const stmt = getDb().prepare('UPDATE students SET studentSummary = ? WHERE id = ?');
-    stmt.run(studentSummary, id);
+
+    const db = getDb();
+    const isSuperAdmin = user?.role === 'super_admin';
+
+    if (isSuperAdmin) {
+      const stmt = db.prepare('UPDATE students SET studentSummary = ? WHERE id = ?');
+      stmt.run(studentSummary, id);
+    } else if (user?.id) {
+      // Counselors can only update their own students
+      const stmt = db.prepare('UPDATE students SET studentSummary = ? WHERE id = ? AND counselor_id = ?');
+      const result = stmt.run(studentSummary, id, Number(user.id));
+      if (result && result.changes === 0) {
+        return NextResponse.json({ error: 'Student not found or access denied.' }, { status: 403 });
+      }
+    } else {
+      const stmt = db.prepare('UPDATE students SET studentSummary = ? WHERE id = ?');
+      stmt.run(studentSummary, id);
+    }
+
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Failed to update student summary in DB:', error);
@@ -141,29 +218,17 @@ export async function PATCH(req: Request) {
 
 export async function POST(req: Request) {
   try {
+    const user = await getAuthUser(req);
+    if (!user && !isCloudEnv) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const body = await req.json();
     const list = Array.isArray(body) ? body : [body];
     const db = getDb();
-    
-    try {
-      db.exec(`
-        CREATE TABLE IF NOT EXISTS students (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          studentDetails JSON,
-          studentSummary TEXT,
-          strengths JSON,
-          areasForImprovement JSON,
-          careerOpportunities JSON,
-          recommendedColleges JSON,
-          visaDifficulty TEXT,
-          keySkillsIdentified JSON,
-          estimatedBudgetRange TEXT,
-          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-          counselor_id INTEGER,
-          comparisonData JSON
-        );
-      `);
-    } catch (e) {}
+    ensureTables(db);
+
+    const isSuperAdmin = user?.role === 'super_admin';
 
     const upsertStmt = db.prepare(`
       INSERT INTO students (
@@ -181,6 +246,15 @@ export async function POST(req: Request) {
     for (const s of list) {
       if (!s || !s.studentDetails) continue;
       try {
+        let targetCounselorId: number;
+        if (isSuperAdmin) {
+          targetCounselorId = Number(s.counselor_id || user?.id || 1);
+        } else if (user?.id) {
+          targetCounselorId = Number(user.id);
+        } else {
+          targetCounselorId = Number(s.counselor_id || 1);
+        }
+
         upsertStmt.run(
           s.id || null,
           typeof s.studentDetails === 'string' ? s.studentDetails : JSON.stringify(s.studentDetails),
@@ -192,7 +266,7 @@ export async function POST(req: Request) {
           s.visaDifficulty || '',
           typeof s.keySkillsIdentified === 'string' ? s.keySkillsIdentified : JSON.stringify(s.keySkillsIdentified || []),
           s.estimatedBudgetRange || '',
-          s.counselor_id || 1,
+          targetCounselorId,
           s.comparisonData ? (typeof s.comparisonData === 'string' ? s.comparisonData : JSON.stringify(s.comparisonData)) : null
         );
       } catch (err) {}
@@ -203,5 +277,3 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
-
-

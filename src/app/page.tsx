@@ -96,6 +96,7 @@ type AnalysisResult = {
   keySkillsIdentified: string[];
   estimatedBudgetRange: string;
   counselorName?: string;
+  counselor_id?: number | null;
 };
 
 const FALLBACK_FX_RATES: Record<string, number> = {
@@ -474,6 +475,7 @@ export default function Home() {
   const [filterToDate, setFilterToDate] = useState("");
   const [filterIntakeTerm, setFilterIntakeTerm] = useState("All");
   const [filterIntakeYear, setFilterIntakeYear] = useState("All");
+  const [filterCounselor, setFilterCounselor] = useState("All");
   const [sortBy, setSortBy] = useState("recent");
   const [appUsers, setAppUsers] = useState<any[]>([]);
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -749,7 +751,8 @@ ${chatUser}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`;
               return s;
             });
             try {
-              localStorage.setItem('learn_overseas_students', JSON.stringify(updated));
+              const storageKey = currentUser ? `learn_overseas_students_${currentUser.id}` : 'learn_overseas_students';
+              localStorage.setItem(storageKey, JSON.stringify(updated));
             } catch (e) {}
             return updated;
           });
@@ -933,23 +936,33 @@ ${chatUser}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`;
   };
 
   useEffect(() => {
+    if (!currentUser) {
+      setHistory([]);
+      return;
+    }
+
+    const userStorageKey = `learn_overseas_students_${currentUser.id}`;
+    const userDeletedKey = `learn_overseas_deleted_ids_${currentUser.id}`;
+
     let deletedIds: any[] = [];
     try {
-      const rawDeleted = localStorage.getItem('learn_overseas_deleted_ids');
+      const rawDeleted = localStorage.getItem(userDeletedKey);
       if (rawDeleted) deletedIds = JSON.parse(rawDeleted);
     } catch (e) {}
 
-    // First load from localStorage immediately for instantaneous UI render
+    // First load from user-scoped localStorage immediately for instantaneous UI render
     let cached: AnalysisResult[] = [];
     try {
-      const rawCached = localStorage.getItem('learn_overseas_students');
+      const rawCached = localStorage.getItem(userStorageKey);
       if (rawCached) {
         cached = (JSON.parse(rawCached) as AnalysisResult[]).filter((s: any) => !deletedIds.includes(s.id));
         setHistory(cached);
       }
     } catch (e) {}
 
-    fetch(`/api/students`, { credentials: 'include' })
+    const endpoint = currentUser.role === 'super_admin' ? '/api/students' : `/api/students?counselorId=${currentUser.id}`;
+
+    fetch(endpoint, { credentials: 'include' })
       .then(res => res.json())
       .then(data => {
         if (Array.isArray(data)) {
@@ -990,7 +1003,7 @@ ${chatUser}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`;
           });
           setHistory(finalRoster);
           try {
-            localStorage.setItem('learn_overseas_students', JSON.stringify(finalRoster));
+            localStorage.setItem(userStorageKey, JSON.stringify(finalRoster));
           } catch (e) {}
         }
       })
@@ -1142,7 +1155,8 @@ ${chatUser}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`;
           newHistory = [data, ...prev];
         }
         try {
-          localStorage.setItem('learn_overseas_students', JSON.stringify(newHistory));
+          const storageKey = currentUser ? `learn_overseas_students_${currentUser.id}` : 'learn_overseas_students';
+          localStorage.setItem(storageKey, JSON.stringify(newHistory));
         } catch (e) {}
         return newHistory;
       }); 
@@ -1295,7 +1309,8 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
             updated = [studentWithComparison, ...prev];
           }
           try {
-            localStorage.setItem('learn_overseas_students', JSON.stringify(updated));
+            const storageKey = currentUser ? `learn_overseas_students_${currentUser.id}` : 'learn_overseas_students';
+            localStorage.setItem(storageKey, JSON.stringify(updated));
           } catch (e) {}
           return updated;
         });
@@ -1362,14 +1377,17 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
   };
 
   const handleDeleteStudent = async (studentToDelete: AnalysisResult) => {
+    const userDeletedKey = currentUser ? `learn_overseas_deleted_ids_${currentUser.id}` : 'learn_overseas_deleted_ids';
+    const storageKey = currentUser ? `learn_overseas_students_${currentUser.id}` : 'learn_overseas_students';
+
     if (studentToDelete && studentToDelete.id) {
       // Record deleted ID in localStorage so even serverless cold starts never resurrect it
       try {
-        const rawDeleted = localStorage.getItem('learn_overseas_deleted_ids');
+        const rawDeleted = localStorage.getItem(userDeletedKey);
         const deletedIds = rawDeleted ? JSON.parse(rawDeleted) : [];
         if (!deletedIds.includes(studentToDelete.id)) {
           deletedIds.push(studentToDelete.id);
-          localStorage.setItem('learn_overseas_deleted_ids', JSON.stringify(deletedIds));
+          localStorage.setItem(userDeletedKey, JSON.stringify(deletedIds));
         }
       } catch (e) {}
 
@@ -1387,7 +1405,7 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
     setHistory(prev => {
       const updated = prev.filter(s => s !== studentToDelete && s.id !== studentToDelete.id);
       try {
-        localStorage.setItem('learn_overseas_students', JSON.stringify(updated));
+        localStorage.setItem(storageKey, JSON.stringify(updated));
       } catch (e) {}
       return updated;
     });
@@ -1507,7 +1525,12 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
        matchesYear = intake.includes(filterIntakeYear);
     }
     
-    return matchesSearch && matchesFilter && matchesExactCourse && matchesDate && matchesTerm && matchesYear;
+    let matchesCounselor = true;
+    if (currentUser?.role === 'super_admin' && filterCounselor !== "All") {
+       matchesCounselor = String(student.counselor_id) === filterCounselor || student.counselorName?.toLowerCase() === filterCounselor.toLowerCase();
+    }
+
+    return matchesSearch && matchesFilter && matchesExactCourse && matchesDate && matchesTerm && matchesYear && matchesCounselor;
   });
 
   const sortedHistory = [...filteredHistory].sort((a, b) => {
@@ -2514,6 +2537,23 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
                     <option value={(currentYear + 2).toString()}>{currentYear + 2}</option>
                   </select>
                 </div>
+
+                {/* Counselor Filter for Super Admin */}
+                {currentUser?.role === 'super_admin' && appUsers.length > 0 && (
+                  <div className="relative">
+                    <select
+                      value={filterCounselor}
+                      onChange={(e) => setFilterCounselor(e.target.value)}
+                      className="appearance-none flex items-center gap-2 pl-4 pr-10 py-2 bg-black/40 border border-white/5 rounded-lg text-sm font-bold text-slate-300 hover:bg-white/5 transition-all outline-none"
+                    >
+                      <option value="All">All Counselors</option>
+                      {appUsers.map(u => (
+                        <option key={u.id} value={u.id.toString()}>{u.name} ({u.username})</option>
+                      ))}
+                    </select>
+                    <Filter className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  </div>
+                )}
 
                 {/* Existing Domain Filter */}
                 <div className="relative">
