@@ -1405,11 +1405,11 @@ Student: ${extractedName} | Goal: ${degreeObjective} in ${degreeDisplay} | CGPA:
                 aiApiKey = cloudDefaultApiKey;
             }
 
-            // Cloud serverless timeout capped at 8500ms to stay safely under Netlify 10s execution ceiling
+            // Cloud serverless timeout allowed up to 20s so Ollama finishes inference cleanly without aborting
             // Local on-premise servers (Windows / Mac / Linux) allow 120 seconds.
-            const timeoutMs = isCloudEnv ? 8500 : 120000;
-            // 45 tokens generates a crisp 3-part structured summary in ~7-8s on Linux CPU
-            const tokenLimit = isCloudEnv ? 45 : 75;
+            const timeoutMs = isCloudEnv ? 20000 : 120000;
+            // 40 tokens generates a crisp 3-part structured summary in ~7-8s on Linux CPU
+            const tokenLimit = isCloudEnv ? 40 : 75;
 
             let ollamaResponse: Response | null = null;
             let lastAiError: any = null;
