@@ -935,6 +935,8 @@ class LocalHeuristicBrain {
         originalContext: rawData
       },
       studentSummary: "",
+      isAiGenerated: false,
+      aiError: null as string | null,
       strengths: [] as string[],
       areasForImprovement: [] as string[],
       careerOpportunities: [] as string[],
@@ -1266,33 +1268,19 @@ class LocalHeuristicBrain {
     
     try {
         const convertedBudget = Math.round(extractedBudget * rateMultiplier);
-        let userPrompt = `Profile Data: Name: ${extractedName}. Degree Objective: ${degreeObjective} in ${exactCourse !== 'General' ? exactCourse : primaryDomain.replace('_', ' ')}. CGPA: ${extractedCgpa}/10. Budget: ${targetSymbol}${convertedBudget.toLocaleString('en-US', {maximumFractionDigits: 0})}. Target Destination: ${destinationCountry !== "Not Decided" ? destinationCountry : "Global"}.`;
-        
-        if (topColleges) {
-            userPrompt += ` Top Matched Institutions: ${topColleges}.`;
-        }
-        
+        const degreeDisplay = exactCourse !== 'General' ? exactCourse : primaryDomain.replace(/_/g, ' ');
+        const countryDisplay = destinationCountry !== "Not Decided" ? destinationCountry : "Global";
         const isPureNumber = /^[0-9$,.\s]+$/.test(context);
-        if (context && context.trim().length > 3 && !isPureNumber) {
-            userPrompt += ` Additional Data: "${context}".`;
-        }
+        const cleanNotes = (context && context.trim().length > 3 && !isPureNumber) ? context.slice(0, 100).trim() : 'Standard profile assessment';
 
-        const prompt = `System: You are an expert admission counselor AI. Format a professional structured profile report based ONLY on the provided data. Do not hallucinate or make assumptions.
-
-You MUST use EXACTLY this format with these three subheadings (using bold text):
-
+        // Llama 3 native chat format - super-fast prompt ingestion (<3s on CPU)
+        const prompt = `<|start_header_id|>system<|end_header_id|>
+You are an expert admission counselor AI. Write a concise 3-part report with EXACTLY these bold headings:
 **Academic Background**
-[Write 1 factual sentence stating the student's name, degree objective, exact course, and CGPA.]
-
 **Financial & Location Preferences**
-[Write 1 factual sentence stating their budget, target destination, and any matched institutions.]
-
 **Counselor Notes**
-[If "Additional Data" is provided in the prompt, objectively summarize it here in 1 sentence. If no "Additional Data" is provided, state exactly: "No additional counselor notes provided."]
-
-${userPrompt}
-
-Counselor AI Summary:`;
+Be concise and factual.<|eot_id|><|start_header_id|>user<|end_header_id|>
+Student: ${extractedName} | Goal: ${degreeObjective} in ${degreeDisplay} | CGPA: ${extractedCgpa}/10 | Budget: ${targetSymbol}${convertedBudget.toLocaleString('en-US', {maximumFractionDigits: 0})} | Destination: ${countryDisplay} | Notes: ${cleanNotes}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`;
         
         // Tier 1: Fast Cloud LLM (Groq) if configured - returns in ~400ms
         if (process.env.GROQ_API_KEY) {
@@ -1307,9 +1295,9 @@ Counselor AI Summary:`;
                         model: 'llama-3.1-8b-instant',
                         messages: [
                             { role: 'system', content: 'You are an expert admission counselor AI. Format a professional structured profile report with exact subheadings: **Academic Background**, **Financial & Location Preferences**, and **Counselor Notes**.' },
-                            { role: 'user', content: prompt }
+                            { role: 'user', content: `Student: ${extractedName} | Goal: ${degreeObjective} in ${degreeDisplay} | CGPA: ${extractedCgpa}/10 | Budget: ${targetSymbol}${convertedBudget} | Destination: ${countryDisplay}` }
                         ],
-                        max_tokens: 180,
+                        max_tokens: 150,
                         temperature: 0.2
                     }),
                     signal: AbortSignal.timeout(5000)
@@ -1318,6 +1306,7 @@ Counselor AI Summary:`;
                     const groqData = await groqRes.json();
                     if (groqData.choices?.[0]?.message?.content) {
                         finalSummary = groqData.choices[0].message.content.trim();
+                        result.isAiGenerated = true;
                     }
                 }
             } catch (groqErr) {
@@ -1336,8 +1325,6 @@ Counselor AI Summary:`;
                 (typeof process.cwd === 'function' && process.cwd().startsWith('/var/task'))
             );
 
-            // Cloud Serverless Fallback Defaults (Ensures Cloud Netlify connects even if UI env vars are not filled)
-            const cloudDefaultEndpoint = 'https://entrepreneurs-psp-navigate-maternity.trycloudflare.com/api/generate';
             const cloudDefaultApiKey = 'lo_live_qDYoGoQFKz7bM35ijtVa-9BwznoFZhqO';
 
             let aiEndpoint = (customAiEndpoint || process.env.LOCAL_AI_ENDPOINT || '').trim();
@@ -1363,8 +1350,8 @@ Counselor AI Summary:`;
                 }
             }
 
-            // Filter out dead obsolete tunnels
-            if (aiEndpoint.includes('headline-alive') || aiEndpoint.includes('blink-competitions') || aiEndpoint.includes('entrepreneurs-psp-navigate-maternity')) {
+            // Only clean obsolete tunnels if user didn't explicitly pass customAiEndpoint
+            if (!customAiEndpoint && (aiEndpoint.includes('headline-alive') || aiEndpoint.includes('blink-competitions') || aiEndpoint.includes('entrepreneurs-psp-navigate-maternity'))) {
                 aiEndpoint = '';
             }
 
@@ -1397,15 +1384,14 @@ Counselor AI Summary:`;
             }
 
             const candidateEndpoints = (isCloudEnv
-                ? [normalize(aiEndpoint), normalize(cloudDefaultEndpoint)]
-                : [normalize(aiEndpoint), normalize(cloudDefaultEndpoint), 'http://192.168.0.76:11434/api/generate', 'http://192.168.0.66:11434/api/generate', 'http://127.0.0.1:11434/api/generate']
+                ? [normalize(aiEndpoint)]
+                : [normalize(aiEndpoint), 'http://192.168.0.76:11434/api/generate', 'http://192.168.0.66:11434/api/generate', 'http://127.0.0.1:11434/api/generate']
             ).filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
 
-            // Allow full execution time so Ollama has ample time to finish reasoning & generation.
-            // On cloud serverless, allow up to 55s (within maxDuration 60s).
+            // Cloud serverless timeout is 23s (within Netlify 26s hard gateway limit).
             // On local on-premise servers (Windows / Mac / Linux), allow 120 seconds.
-            const timeoutMs = isCloudEnv ? 55000 : 120000;
-            const tokenLimit = 65;
+            const timeoutMs = isCloudEnv ? 23000 : 120000;
+            const tokenLimit = 48;
 
             let ollamaResponse: Response | null = null;
             let lastAiError: any = null;
@@ -1452,6 +1438,7 @@ Counselor AI Summary:`;
                 const data = await ollamaResponse.json();
                 if (data.response) {
                     finalSummary = data.response.trim();
+                    result.isAiGenerated = true;
                 }
             } else {
                 throw new Error(`Ollama endpoint returned status ${ollamaResponse?.status}`);
@@ -1463,10 +1450,15 @@ Counselor AI Summary:`;
         const profileStrength = extractedCgpa >= 8.5 ? "exceptional" : extractedCgpa >= 7.5 ? "strong" : extractedCgpa >= 6.0 ? "competitive" : "foundational";
         const countryLabel = (destinationCountry && destinationCountry !== "Not Decided" && destinationCountry !== "Other") ? destinationCountry : "preferred global destinations";
         finalSummary = `**Academic Background**\n${extractedName} demonstrates a ${profileStrength} academic profile with a CGPA of ${extractedCgpa}/10, pursuing a ${degreeObjective} degree in ${exactCourse !== 'General' ? exactCourse : primaryDomain.replace(/_/g, ' ')}.\n\n**Financial & Location Preferences**\nTargeting higher education in ${countryLabel} with an estimated budget of ${targetSymbol}${extractedBudget.toLocaleString('en-US', {maximumFractionDigits: 0})}.\n\n**Counselor Notes**\n${context ? context.slice(0, 250).trim() : "Profile evaluated against university entry criteria, test score benchmarks, and financial parameters."}`;
+        result.isAiGenerated = false;
+        result.aiError = e?.message || "Execution timeout";
     }
 
     const existingNotes = result.studentSummary;
     result.studentSummary = finalSummary;
+    if (result.isAiGenerated === undefined) {
+        result.isAiGenerated = !!finalSummary;
+    }
     if (existingNotes) {
         result.studentSummary += "\n\n" + existingNotes;
     }

@@ -39,7 +39,8 @@ import {
   DollarSign,
   Calendar,
   Coins,
-  RefreshCw
+  RefreshCw,
+  Loader2
 } from "lucide-react";
 import * as htmlToImage from 'html-to-image';
 import { jsPDF } from 'jspdf';
@@ -84,6 +85,8 @@ type AnalysisResult = {
     originalContext?: string;
   };
   studentSummary: string;
+  isAiGenerated?: boolean;
+  aiError?: string | null;
   strengths: string[];
   areasForImprovement: string[];
   careerOpportunities: string[];
@@ -535,6 +538,121 @@ export default function Home() {
     }
   };
 
+  const [isGeneratingAiDirectly, setIsGeneratingAiDirectly] = useState(false);
+
+  const generateAiSummaryDirectly = async (studentTarget: AnalysisResult, endpointOverride?: string) => {
+    let ep = (endpointOverride || customAiEndpoint || '').trim();
+    if (!ep && typeof window !== 'undefined') {
+      try {
+        ep = (localStorage.getItem('learn_overseas_custom_ai_endpoint') || '').trim();
+      } catch (e) {}
+    }
+    if (!ep && aiHealthStatus?.endpoint) {
+      ep = String(aiHealthStatus.endpoint).trim();
+    }
+    if (!ep) {
+      console.warn("No active AI endpoint configured for direct generation.");
+      return;
+    }
+
+    let targetUrl = ep.replace(/\/+$/, '');
+    if (!targetUrl.endsWith('/api/generate')) {
+      targetUrl = targetUrl + '/api/generate';
+    }
+
+    setIsGeneratingAiDirectly(true);
+    try {
+      const details = studentTarget.studentDetails;
+      const sName = details?.name || "Applicant";
+      const sDegree = details?.degreeObjective || "Degree";
+      const sDomain = details?.primaryDomain || "Higher Education";
+      const sCgpa = details?.cgpa || "7.5";
+      const sDest = details?.destinationCountry || "Global";
+      const sBudget = studentTarget.estimatedBudgetRange || "Standard Budget";
+      const sMatches = (studentTarget.recommendedColleges || []).slice(0, 3).map(c => c.name).join(", ");
+      const rawCtx = details?.originalContext || "";
+      const isPureNum = /^[0-9$,.\s]+$/.test(rawCtx);
+      const sNotes = (rawCtx && rawCtx.length > 3 && !isPureNum)
+        ? rawCtx.slice(0, 100).replace(/\s+/g, ' ').trim()
+        : "Standard admission assessment";
+
+      const directPrompt = `<|start_header_id|>system<|end_header_id|>
+You are an expert admission counselor AI. Write a concise 3-part report with EXACTLY these bold headings:
+**Academic Background**
+**Financial & Location Preferences**
+**Counselor Notes**
+Be concise and factual.<|eot_id|><|start_header_id|>user<|end_header_id|>
+Student: ${sName} | Goal: ${sDegree} in ${sDomain} | CGPA: ${sCgpa}/10 | Budget: ${sBudget} | Destination: ${sDest} | Top Matches: ${sMatches || 'Identified'} | Notes: ${sNotes}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`;
+
+      const aiKey = 'lo_live_qDYoGoQFKz7bM35ijtVa-9BwznoFZhqO';
+
+      const response = await fetch(targetUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${aiKey}`,
+          'x-api-key': aiKey
+        },
+        body: JSON.stringify({
+          model: 'llama3.1',
+          prompt: directPrompt,
+          stream: false,
+          keep_alive: -1,
+          options: {
+            num_predict: 50,
+            temperature: 0.2
+          }
+        }),
+        signal: AbortSignal.timeout(90000)
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data && data.response) {
+          const freshSummary = data.response.trim();
+          setResult(prev => {
+            if (!prev) return prev;
+            return {
+              ...prev,
+              studentSummary: freshSummary,
+              isAiGenerated: true
+            };
+          });
+
+          // Sync into history state and browser localStorage
+          setHistory(prev => {
+            const updated = prev.map(s => {
+              if (s.id && studentTarget.id && s.id === studentTarget.id) {
+                return { ...s, studentSummary: freshSummary, isAiGenerated: true };
+              }
+              if (s.studentDetails?.name === sName) {
+                return { ...s, studentSummary: freshSummary, isAiGenerated: true };
+              }
+              return s;
+            });
+            try {
+              localStorage.setItem('learn_overseas_students', JSON.stringify(updated));
+            } catch (e) {}
+            return updated;
+          });
+
+          // Persist asynchronously to SQLite database
+          if (studentTarget.id) {
+            fetch('/api/students', {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ id: studentTarget.id, studentSummary: freshSummary })
+            }).catch(err => console.warn("Failed to persist updated summary to DB:", err));
+          }
+        }
+      }
+    } catch (err: any) {
+      console.warn("Direct browser AI generation notice:", err?.message || err);
+    } finally {
+      setIsGeneratingAiDirectly(false);
+    }
+  };
+
   const reportRef = useRef<HTMLDivElement>(null);
   const exportRef = useRef<HTMLDivElement>(null);
   const [isExporting, setIsExporting] = useState(false);
@@ -887,6 +1005,13 @@ export default function Home() {
         } catch (e) {}
         return newHistory;
       }); 
+
+      // Dual-Failsafe: If Netlify returned Tier 3 fallback due to serverless gateway cutoff,
+      // and we have an active on-premise tunnel endpoint, seamlessly finish genuine AI generation from browser!
+      const directEp = customAiEndpoint || (typeof window !== 'undefined' ? localStorage.getItem('learn_overseas_custom_ai_endpoint') || '' : '');
+      if (!data.isAiGenerated && directEp) {
+        generateAiSummaryDirectly(data, directEp);
+      } 
     } catch (err: any) {
       console.error(err);
       setError(err.message || "An unexpected error occurred.");
@@ -1004,6 +1129,11 @@ export default function Home() {
           } catch (e) {}
           return updated;
         });
+
+        const directEp = customAiEndpoint || (typeof window !== 'undefined' ? localStorage.getItem('learn_overseas_custom_ai_endpoint') || '' : '');
+        if (!studentWithComparison.isAiGenerated && directEp) {
+          generateAiSummaryDirectly(studentWithComparison, directEp);
+        }
       }
     } catch (err) {
       console.error(err);
@@ -1767,11 +1897,45 @@ export default function Home() {
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                     <div className="md:col-span-2 bg-gradient-to-br from-[#FC7133]/15 to-black border border-[#FC7133]/25 rounded-3xl p-6 shadow-inner relative overflow-hidden">
                       <div className="absolute -top-10 -right-10 w-32 h-32 bg-[#FC7133]/10 blur-3xl rounded-full pointer-events-none" />
-                      <h4 className="text-xs font-bold text-[#FC7133] uppercase tracking-widest mb-4 flex items-center gap-2">
-                        <Sparkles className="w-4 h-4 text-[#F9D440]" /> Executive Summary
-                      </h4>
-                      <p className="text-sm text-slate-300 leading-relaxed font-medium whitespace-pre-wrap">
-                        {res.studentSummary}
+                      <div className="flex flex-wrap items-center justify-between gap-2 mb-4 relative z-10">
+                        <h4 className="text-xs font-bold text-[#FC7133] uppercase tracking-widest flex items-center gap-2">
+                          <Sparkles className="w-4 h-4 text-[#F9D440]" /> Executive Summary
+                        </h4>
+                        <div>
+                          {isGeneratingAiDirectly ? (
+                            <span className="text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2.5 py-0.5 rounded-full font-bold flex items-center gap-1.5 animate-pulse">
+                              <Loader2 className="w-3 h-3 animate-spin text-amber-400" /> Synthesizing Deep AI Analysis...
+                            </span>
+                          ) : res.isAiGenerated ? (
+                            <span className="text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2.5 py-0.5 rounded-full font-bold flex items-center gap-1 shadow-sm">
+                              ✓ Live On-Prem AI
+                            </span>
+                          ) : (
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] bg-slate-500/20 text-slate-400 border border-white/10 px-2 py-0.5 rounded-full font-medium">
+                                Heuristic Assessment
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => generateAiSummaryDirectly(res)}
+                                title="Run genuine Llama 3.1 AI analysis directly through Cloudflare Tunnel"
+                                className="text-[10px] bg-[#FC7133]/20 hover:bg-[#FC7133]/30 text-[#FC7133] border border-[#FC7133]/40 px-2.5 py-0.5 rounded-full font-bold transition flex items-center gap-1 shadow-sm active:scale-95"
+                              >
+                                ✨ Run On-Prem AI
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <p className="text-sm text-slate-300 leading-relaxed font-medium whitespace-pre-wrap relative z-10">
+                        {isGeneratingAiDirectly ? (
+                          <span className="text-amber-200/90 italic flex items-center gap-2 py-2">
+                            <Loader2 className="w-4 h-4 animate-spin text-[#FC7133]" />
+                            Connecting directly to on-premises Ollama AI model via secure Cloudflare Tunnel. Synthesizing full counselor evaluation...
+                          </span>
+                        ) : (
+                          res.studentSummary
+                        )}
                       </p>
                     </div>
                     

@@ -86,3 +86,19 @@ export async function DELETE(req: Request) {
     return NextResponse.json({ error: 'Failed to delete student' }, { status: 500 });
   }
 }
+
+export async function PATCH(req: Request) {
+  try {
+    const { id, studentSummary } = await req.json();
+    if (!id || typeof studentSummary !== 'string') {
+      return NextResponse.json({ error: 'Missing id or studentSummary' }, { status: 400 });
+    }
+    const stmt = getDb().prepare('UPDATE students SET studentSummary = ? WHERE id = ?');
+    stmt.run(studentSummary, id);
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error('Failed to update student summary in DB:', error);
+    return NextResponse.json({ error: 'Failed to update student' }, { status: 500 });
+  }
+}
+

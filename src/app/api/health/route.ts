@@ -46,8 +46,14 @@ export async function GET(req: Request) {
     }
   }
 
-  // Check if dead tunnel is configured
-  if (configuredEndpoint.includes('headline-alive') || configuredEndpoint.includes('blink-competitions') || configuredEndpoint.includes('entrepreneurs-psp-navigate-maternity')) {
+  // Check if dead tunnel is configured (only if not explicitly passed by user)
+  let isUserPassed = false;
+  try {
+    const urlCheck = new URL(req.url);
+    isUserPassed = !!(urlCheck.searchParams.get('endpoint') || req.headers.get('x-ai-endpoint'));
+  } catch (e) {}
+
+  if (!isUserPassed && (configuredEndpoint.includes('headline-alive') || configuredEndpoint.includes('blink-competitions') || configuredEndpoint.includes('entrepreneurs-psp-navigate-maternity'))) {
     configuredEndpoint = '';
   }
 
@@ -80,8 +86,8 @@ export async function GET(req: Request) {
   }
 
   const candidateEndpoints = (isCloudEnv
-    ? [normalize(configuredEndpoint), normalize(cloudDefaultEndpoint)]
-    : [normalize(configuredEndpoint), normalize(cloudDefaultEndpoint), 'http://192.168.0.76:11434/api/generate', 'http://192.168.0.66:11434/api/generate', 'http://127.0.0.1:11434/api/generate']
+    ? [normalize(configuredEndpoint)]
+    : [normalize(configuredEndpoint), 'http://192.168.0.76:11434/api/generate', 'http://192.168.0.66:11434/api/generate', 'http://127.0.0.1:11434/api/generate']
   ).filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
 
   const result: any = {
