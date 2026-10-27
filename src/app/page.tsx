@@ -551,6 +551,12 @@ export default function Home() {
         try {
           localStorage.setItem('learn_overseas_custom_ai_endpoint', connectedEp);
         } catch (e) {}
+        // Also persist to server database settings so any future cold starts read it
+        fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ aiEndpoint: connectedEp })
+        }).catch(() => {});
       }
     } catch (e: any) {
       setAiHealthStatus({ status: 'unreachable', error: e?.message });

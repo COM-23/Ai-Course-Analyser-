@@ -31,10 +31,10 @@ export async function GET(req: Request) {
 
   const cloudDefaultApiKey = 'lo_live_qDYoGoQFKz7bM35ijtVa-9BwznoFZhqO';
 
-  let configuredEndpoint = (process.env.LOCAL_AI_ENDPOINT || '').trim();
+  let configuredEndpoint = '';
   let configuredApiKey = (process.env.LOCAL_AI_API_KEY || '').trim();
 
-  // 1. Check if client passed an endpoint via query param or header
+  // 1. Check if client passed an endpoint via query param or header (highest priority)
   try {
     const url = new URL(req.url);
     const paramEp = url.searchParams.get('endpoint') || req.headers.get('x-ai-endpoint');
@@ -43,7 +43,7 @@ export async function GET(req: Request) {
     }
   } catch (e) {}
 
-  // 2. Check if Super Admin configured an AI endpoint in UI Settings table
+  // 2. Check if configured in UI Settings table in database
   if (!configuredEndpoint) {
     try {
       const settingRow = getDb().prepare("SELECT value FROM settings WHERE id = 'aiEndpoint'").get() as any;
@@ -56,9 +56,12 @@ export async function GET(req: Request) {
     } catch (e) {}
   }
 
-  // 3. Normalize configuredEndpoint if present
-  if (configuredEndpoint) {
-    configuredEndpoint = cleanAndNormalizeUrl(configuredEndpoint);
+  // 3. Fallback to process.env.LOCAL_AI_ENDPOINT if valid and not expired placeholder
+  if (!configuredEndpoint && process.env.LOCAL_AI_ENDPOINT) {
+    const envEp = process.env.LOCAL_AI_ENDPOINT.trim();
+    if (!envEp.includes('entrepreneurs-psp-navigate-maternity') && !envEp.includes('your-tunnel-subdomain')) {
+      configuredEndpoint = envEp;
+    }
   }
 
   // 4. Check if local .tunnel-status.json exists (on-premise local dev/server)
@@ -70,10 +73,15 @@ export async function GET(req: Request) {
       if (fs.existsSync(statusPath)) {
         const statusData = JSON.parse(fs.readFileSync(statusPath, 'utf-8'));
         if (statusData && statusData.endpoint) {
-          configuredEndpoint = cleanAndNormalizeUrl(statusData.endpoint);
+          configuredEndpoint = statusData.endpoint;
         }
       }
     } catch (e) {}
+  }
+
+  // 5. Normalize configuredEndpoint if present
+  if (configuredEndpoint) {
+    configuredEndpoint = cleanAndNormalizeUrl(configuredEndpoint);
   }
 
   if (!configuredApiKey) {
@@ -82,8 +90,15 @@ export async function GET(req: Request) {
 
   const candidateEndpoints = (isCloudEnv
     ? [configuredEndpoint]
-    : [configuredEndpoint, 'http://192.168.0.76:11434/api/generate', 'http://192.168.0.66:11434/api/generate', 'http://127.0.0.1:11434/api/generate']
-  ).filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
+    : [
+        configuredEndpoint,
+        'http://192.168.0.66:11435/api/generate',
+        'http://192.168.0.66:11434/api/generate',
+        'http://192.168.0.76:11434/api/generate',
+        'http://127.0.0.1:11435/api/generate',
+        'http://127.0.0.1:11434/api/generate'
+      ]
+  ).filter(Boolean).filter(ep => !ep.includes('entrepreneurs-psp-navigate-maternity')).filter((v, i, a) => a.indexOf(v) === i);
 
   const result: any = {
     database: { status: 'unknown' },

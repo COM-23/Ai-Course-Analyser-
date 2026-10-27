@@ -1345,56 +1345,68 @@ Student: ${extractedName} | Goal: ${degreeObjective} in ${degreeDisplay} | CGPA:
                 return str;
             }
 
-            let aiEndpoint = (customAiEndpoint || process.env.LOCAL_AI_ENDPOINT || '').trim();
+            let dbEndpoint = '';
+            try {
+                const settingRow = getDb().prepare("SELECT value FROM settings WHERE id = 'aiEndpoint'").get() as any;
+                if (settingRow && settingRow.value) {
+                    const parsed = JSON.parse(settingRow.value);
+                    if (typeof parsed === 'string' && parsed.trim()) {
+                        dbEndpoint = parsed.trim();
+                    }
+                }
+            } catch (e) {}
+
+            let fileStatusEndpoint = '';
+            try {
+                const nodeFs = require('fs');
+                const nodePath = require('path');
+                const statusPath = nodePath.resolve(process.cwd(), '.tunnel-status.json');
+                if (nodeFs.existsSync(statusPath)) {
+                    const statusData = JSON.parse(nodeFs.readFileSync(statusPath, 'utf-8'));
+                    if (statusData && statusData.endpoint) {
+                        fileStatusEndpoint = statusData.endpoint;
+                    }
+                }
+            } catch (e) {}
+
+            let envEndpoint = (process.env.LOCAL_AI_ENDPOINT || '').trim();
+            if (envEndpoint.includes('entrepreneurs-psp-navigate-maternity') || envEndpoint.includes('your-tunnel-subdomain')) {
+                envEndpoint = '';
+            }
+
+            const rawCandidates = [
+                customAiEndpoint,
+                dbEndpoint,
+                envEndpoint,
+                fileStatusEndpoint
+            ].filter(Boolean)
+             .map((s: string) => cleanAndNormalizeUrl(String(s).trim()))
+             .filter((s: string) => s && !s.includes('entrepreneurs-psp-navigate-maternity') && !s.includes('your-tunnel-subdomain'));
+
+            if (!isCloudEnv) {
+                rawCandidates.push(
+                    'http://192.168.0.66:11435/api/generate',
+                    'http://192.168.0.66:11434/api/generate',
+                    'http://192.168.0.76:11434/api/generate',
+                    'http://127.0.0.1:11435/api/generate',
+                    'http://127.0.0.1:11434/api/generate'
+                );
+            }
+
+            const candidateEndpoints = rawCandidates.filter((v, i, a) => a.indexOf(v) === i);
+
             let aiApiKey = (process.env.LOCAL_AI_API_KEY || '').trim();
             const aiModel = (requestedModel || process.env.LOCAL_AI_MODEL || 'llama3.1').trim();
-
-            // Check if Super Admin configured an AI endpoint in UI Settings table (if not passed by client)
-            if (!aiEndpoint) {
-                try {
-                    const settingRow = getDb().prepare("SELECT value FROM settings WHERE id = 'aiEndpoint'").get() as any;
-                    if (settingRow && settingRow.value) {
-                        const parsed = JSON.parse(settingRow.value);
-                        if (typeof parsed === 'string' && parsed.trim()) {
-                            aiEndpoint = parsed.trim();
-                        }
-                    }
-                } catch (e) {}
-            }
-
-            if (aiEndpoint) {
-                aiEndpoint = cleanAndNormalizeUrl(aiEndpoint);
-            }
-
-            // Check if local .tunnel-status.json exists
-            if (!aiEndpoint) {
-                try {
-                    const nodeFs = require('fs');
-                    const nodePath = require('path');
-                    const statusPath = nodePath.resolve(process.cwd(), '.tunnel-status.json');
-                    if (nodeFs.existsSync(statusPath)) {
-                        const statusData = JSON.parse(nodeFs.readFileSync(statusPath, 'utf-8'));
-                        if (statusData && statusData.endpoint) {
-                            aiEndpoint = cleanAndNormalizeUrl(statusData.endpoint);
-                        }
-                    }
-                } catch (e) {}
-            }
 
             if (!aiApiKey) {
                 aiApiKey = cloudDefaultApiKey;
             }
 
-            const candidateEndpoints = (isCloudEnv
-                ? [aiEndpoint]
-                : [aiEndpoint, 'http://192.168.0.76:11434/api/generate', 'http://192.168.0.66:11434/api/generate', 'http://127.0.0.1:11434/api/generate']
-            ).filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
-
-            // Cloud serverless timeout is 20s (safely inside Netlify 26s hard gateway limit).
+            // Cloud serverless timeout is 9.5s (to finish safely within Netlify 10s gateway limit).
             // On local on-premise servers (Windows / Mac / Linux), allow 120 seconds.
-            const timeoutMs = isCloudEnv ? 20000 : 120000;
-            // 60 tokens generates a comprehensive 3-part structured summary in 3-5s on CPU
-            const tokenLimit = isCloudEnv ? 60 : 100;
+            const timeoutMs = isCloudEnv ? 9500 : 120000;
+            // 45 tokens generates a crisp 3-part structured summary in 2.5-3.5s on Linux CPU
+            const tokenLimit = isCloudEnv ? 45 : 75;
 
             let ollamaResponse: Response | null = null;
             let lastAiError: any = null;
@@ -1416,12 +1428,12 @@ Student: ${extractedName} | Goal: ${degreeObjective} in ${degreeDisplay} | CGPA:
                         let tagsRes = await fetch(`${baseUrl}/api/tags`, {
                             method: 'GET',
                             headers: aiApiKey ? { 'Authorization': `Bearer ${aiApiKey}`, 'x-api-key': aiApiKey } : {},
-                            signal: AbortSignal.timeout(4000)
+                            signal: AbortSignal.timeout(3000)
                         });
                         if (!tagsRes.ok && (tagsRes.status === 401 || tagsRes.status === 403)) {
                             tagsRes = await fetch(`${baseUrl}/api/tags`, {
                                 method: 'GET',
-                                signal: AbortSignal.timeout(4000)
+                                signal: AbortSignal.timeout(3000)
                             });
                         }
                         if (tagsRes.ok) {
@@ -1449,7 +1461,9 @@ Student: ${extractedName} | Goal: ${degreeObjective} in ${degreeDisplay} | CGPA:
                             keep_alive: "60m",
                             options: {
                                 num_predict: tokenLimit,
-                                temperature: 0.2
+                                temperature: 0.1,
+                                num_ctx: 512,
+                                num_thread: 8
                             }
                         }),
                         signal: AbortSignal.timeout(timeoutMs)
@@ -1500,7 +1514,12 @@ Student: ${extractedName} | Goal: ${degreeObjective} in ${degreeDisplay} | CGPA:
                                         prompt: prompt,
                                         stream: false,
                                         keep_alive: "60m",
-                                        options: { num_predict: tokenLimit, temperature: 0.2 }
+                                        options: {
+                                            num_predict: tokenLimit,
+                                            temperature: 0.1,
+                                            num_ctx: 512,
+                                            num_thread: 8
+                                        }
                                     }),
                                     signal: AbortSignal.timeout(timeoutMs)
                                 });
