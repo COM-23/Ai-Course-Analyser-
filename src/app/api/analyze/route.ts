@@ -178,7 +178,7 @@ async function scrapeLiveUniversities(domain: string, country: string, degreeObj
 }
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 26;
 
 // THIS IS THE "BRAIN" - Built directly into the backend using a Keyword Heuristic Engine.
 // It analyzes text entirely locally in memory, no external endpoints. Now enhanced with local LLM.
@@ -1405,11 +1405,11 @@ Student: ${extractedName} | Goal: ${degreeObjective} in ${degreeDisplay} | CGPA:
                 aiApiKey = cloudDefaultApiKey;
             }
 
-            // Cloud serverless timeout is 9.5s (to finish safely within Netlify 10s gateway limit).
+            // Extended cloud serverless timeout (22s) so Ollama finishes inference cleanly without aborting.
             // On local on-premise servers (Windows / Mac / Linux), allow 120 seconds.
-            const timeoutMs = isCloudEnv ? 9500 : 120000;
-            // 45 tokens generates a crisp 3-part structured summary in 2.5-3.5s on Linux CPU
-            const tokenLimit = isCloudEnv ? 45 : 75;
+            const timeoutMs = isCloudEnv ? 22000 : 120000;
+            // 40 tokens generates a crisp 3-part structured summary in ~7-8s on Linux CPU
+            const tokenLimit = isCloudEnv ? 40 : 75;
 
             let ollamaResponse: Response | null = null;
             let lastAiError: any = null;
@@ -1427,34 +1427,7 @@ Student: ${extractedName} | Goal: ${degreeObjective} in ${degreeDisplay} | CGPA:
                         headers['x-api-key'] = aiApiKey;
                     }
 
-                    // Auto-discover exact installed models from /api/tags (with and without auth)
                     let modelToUse = aiModel;
-                    let availableModels: string[] = [];
-                    try {
-                        let tagsRes = await fetch(`${baseUrl}/api/tags`, {
-                            method: 'GET',
-                            headers: aiApiKey ? { 'Authorization': `Bearer ${aiApiKey}`, 'x-api-key': aiApiKey } : {},
-                            signal: AbortSignal.timeout(3000)
-                        });
-                        if (!tagsRes.ok && (tagsRes.status === 401 || tagsRes.status === 403)) {
-                            tagsRes = await fetch(`${baseUrl}/api/tags`, {
-                                method: 'GET',
-                                signal: AbortSignal.timeout(3000)
-                            });
-                        }
-                        if (tagsRes.ok) {
-                            const tagsData = await tagsRes.json();
-                            availableModels = (tagsData.models || []).map((m: any) => m.name || m.model || '');
-                            if (availableModels.length > 0) {
-                                const exactMatch = availableModels.find((m: string) => m.toLowerCase() === aiModel.toLowerCase());
-                                const latestMatch = availableModels.find((m: string) => m.toLowerCase() === `${aiModel.toLowerCase()}:latest`);
-                                const baseMatch = availableModels.find((m: string) => m.toLowerCase().startsWith(aiModel.toLowerCase().split(':')[0]));
-                                const llamaMatch = availableModels.find((m: string) => m.toLowerCase().includes('llama') || m.toLowerCase().includes('mistral') || m.toLowerCase().includes('qwen'));
-                                modelToUse = exactMatch || latestMatch || baseMatch || llamaMatch || availableModels[0];
-                            }
-                        }
-                    } catch (tagsErr) {}
-
                     finalModelUsed = modelToUse;
 
                     // 1. Try /api/chat FIRST (Llama 3 native chat format evaluates 3x faster on CPU)
@@ -1549,15 +1522,14 @@ Student: ${extractedName} | Goal: ${degreeObjective} in ${degreeDisplay} | CGPA:
                         }
                     }
 
-                    // If 404 (model not found), retry with tag variations or discovered available models
+                    // If 404 (model not found), retry with tag variations
                     if (ollamaResponse && ollamaResponse.status === 404) {
                         const candidateRetries = [
                             modelToUse.includes(':') ? modelToUse.split(':')[0] : `${modelToUse}:latest`,
                             'llama3.1:latest',
                             'llama3.1',
                             'llama3.2:latest',
-                            'llama3.2',
-                            availableModels[0]
+                            'llama3.2'
                         ].filter(Boolean).filter((m, idx, arr) => arr.indexOf(m) === idx && m !== modelToUse);
 
                         for (const altModel of candidateRetries) {

@@ -863,15 +863,7 @@ ${chatUser}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`;
   }, []);
 
   useEffect(() => {
-    if (!currentUser || currentUser.role !== 'super_admin') return;
-    fetch('/api/users')
-      .then(res => res.json())
-      .then(data => {
-        if (Array.isArray(data)) setAppUsers(data);
-      })
-      .catch(err => console.error('Error fetching users:', err));
-
-    // Fetch settings
+    // 1. Fetch settings unconditionally for all counselors and sessions
     fetch('/api/settings', { credentials: 'include' })
       .then(res => res.json())
       .then(data => {
@@ -898,8 +890,18 @@ ${chatUser}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`;
       })
       .catch(err => console.error('Error fetching settings:', err));
 
-    // Perform background health check
+    // 2. Perform background health check unconditionally so AI status is immediately known
     checkAiHealth();
+
+    // 3. If admin, fetch all users
+    if (currentUser && currentUser.role === 'super_admin') {
+      fetch('/api/users')
+        .then(res => res.json())
+        .then(data => {
+          if (Array.isArray(data)) setAppUsers(data);
+        })
+        .catch(err => console.error('Error fetching users:', err));
+    }
   }, [currentUser]);
 
   const saveSettings = async (payload: any) => {
@@ -931,8 +933,6 @@ ${chatUser}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`;
   };
 
   useEffect(() => {
-    if (!currentUser) return;
-    
     let deletedIds: any[] = [];
     try {
       const rawDeleted = localStorage.getItem('learn_overseas_deleted_ids');
