@@ -87,6 +87,7 @@ type AnalysisResult = {
   studentSummary: string;
   isAiGenerated?: boolean;
   aiError?: string | null;
+  aiModelUsed?: string | null;
   strengths: string[];
   areasForImprovement: string[];
   careerOpportunities: string[];
@@ -602,37 +603,45 @@ Be concise and factual.<|eot_id|><|start_header_id|>user<|end_header_id|>
 Student: ${sName} | Goal: ${sDegree} in ${sDomain} | CGPA: ${sCgpa}/10 | Budget: ${sBudget} | Destination: ${sDest} | Top Matches: ${sMatches || 'Identified'} | Notes: ${sNotes}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`;
 
       const aiKey = 'lo_live_qDYoGoQFKz7bM35ijtVa-9BwznoFZhqO';
+      const candidateModel = (aiHealthStatus?.model || aiHealthStatus?.models?.[0] || 'llama3.1').trim();
 
-      let response = await fetch(targetUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${aiKey}`,
-          'x-api-key': aiKey
-        },
-        body: JSON.stringify({
-          model: 'llama3.1',
-          prompt: directPrompt,
-          stream: false,
-          keep_alive: -1,
-          options: {
-            num_predict: 85,
-            temperature: 0.2
-          }
-        }),
-        signal: AbortSignal.timeout(90000)
-      });
+      let response: Response | null = null;
+      let usedModel = candidateModel;
 
-      if (!response.ok && (response.status === 401 || response.status === 403)) {
+      try {
+        response = await fetch(targetUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${aiKey}`,
+            'x-api-key': aiKey
+          },
+          body: JSON.stringify({
+            model: candidateModel,
+            prompt: directPrompt,
+            stream: false,
+            keep_alive: "60m",
+            options: {
+              num_predict: 85,
+              temperature: 0.2
+            }
+          }),
+          signal: AbortSignal.timeout(90000)
+        });
+      } catch (directErr) {
+        console.warn("Direct fetch attempt failed:", directErr);
+      }
+
+      if (response && !response.ok && (response.status === 401 || response.status === 403)) {
         try {
           response = await fetch(targetUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              model: 'llama3.1',
+              model: candidateModel,
               prompt: directPrompt,
               stream: false,
-              keep_alive: -1,
+              keep_alive: "60m",
               options: { num_predict: 85, temperature: 0.2 }
             }),
             signal: AbortSignal.timeout(90000)
@@ -640,16 +649,49 @@ Student: ${sName} | Goal: ${sDegree} in ${sDomain} | CGPA: ${sCgpa}/10 | Budget:
         } catch (e) {}
       }
 
-      if (response.ok) {
+      if (response && !response.ok && response.status === 404) {
+        const altModels = [
+          candidateModel.includes(':') ? candidateModel.split(':')[0] : `${candidateModel}:latest`,
+          'llama3.1:latest',
+          'llama3.1',
+          'llama3.2:latest',
+          'llama3.2'
+        ].filter(m => m !== candidateModel);
+
+        for (const alt of altModels) {
+          try {
+            const altRes = await fetch(targetUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${aiKey}`, 'x-api-key': aiKey },
+              body: JSON.stringify({
+                model: alt,
+                prompt: directPrompt,
+                stream: false,
+                keep_alive: "60m",
+                options: { num_predict: 85, temperature: 0.2 }
+              }),
+              signal: AbortSignal.timeout(90000)
+            });
+            if (altRes.ok) {
+              response = altRes;
+              usedModel = alt;
+              break;
+            }
+          } catch (e) {}
+        }
+      }
+
+      if (response && response.ok) {
         const data = await response.json();
-        if (data && data.response) {
-          const freshSummary = data.response.trim();
+        const freshSummary = (data.response || data.message?.content || data.choices?.[0]?.message?.content || '').trim();
+        if (freshSummary) {
           setResult(prev => {
             if (!prev) return prev;
             return {
               ...prev,
               studentSummary: freshSummary,
-              isAiGenerated: true
+              isAiGenerated: true,
+              aiModelUsed: usedModel
             };
           });
 
@@ -1001,7 +1043,8 @@ Student: ${sName} | Goal: ${sDegree} in ${sDomain} | CGPA: ${sCgpa}/10 | Budget:
         realtimeFetching,
         existingColleges: appendMode && result ? result.recommendedColleges : undefined,
         aiEndpoint: customAiEndpoint || (typeof window !== 'undefined' ? localStorage.getItem('learn_overseas_custom_ai_endpoint') || '' : ''),
-        aiStrictness
+        aiStrictness,
+        aiModel: aiHealthStatus?.model || aiHealthStatus?.models?.[0] || 'llama3.1'
       };
 
       let res = await fetch("/api/analyze", {
@@ -1132,9 +1175,9 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
           compareCountryIndex: i,
           totalCompareCountries: compareCountries.length,
           realtimeFetching: false,
-          isComparison: true,
           aiEndpoint: customAiEndpoint || (typeof window !== 'undefined' ? localStorage.getItem('learn_overseas_custom_ai_endpoint') || '' : ''),
-          aiStrictness
+          aiStrictness,
+          aiModel: aiHealthStatus?.model || aiHealthStatus?.models?.[0] || 'llama3.1'
         };
         let res = await fetch("/api/analyze", {
           method: "POST",
@@ -2000,17 +2043,20 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
                             </span>
                           ) : res.isAiGenerated ? (
                             <span className="text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2.5 py-0.5 rounded-full font-bold flex items-center gap-1 shadow-sm">
-                              ✓ Live On-Prem AI
+                              ✓ Live On-Prem AI {(res as any).aiModelUsed ? `(${(res as any).aiModelUsed})` : ''}
                             </span>
                           ) : (
                             <div className="flex items-center gap-2">
-                              <span className="text-[10px] bg-slate-500/20 text-slate-400 border border-white/10 px-2 py-0.5 rounded-full font-medium">
-                                Heuristic Assessment
+                              <span 
+                                className="text-[10px] bg-amber-500/10 text-amber-300 border border-amber-500/20 px-2 py-0.5 rounded-full font-medium"
+                                title={res.aiError ? `Fallback reason: ${res.aiError}` : 'Heuristic evaluation'}
+                              >
+                                ⚡ Heuristic Assessment {res.aiError ? `(${res.aiError.slice(0, 24)})` : ''}
                               </span>
                               <button
                                 type="button"
                                 onClick={() => generateAiSummaryDirectly(res)}
-                                title="Run genuine Llama 3.1 AI analysis directly through Cloudflare Tunnel"
+                                title="Run genuine Ollama AI model directly through Cloudflare Tunnel"
                                 className="text-[10px] bg-[#FC7133]/20 hover:bg-[#FC7133]/30 text-[#FC7133] border border-[#FC7133]/40 px-2.5 py-0.5 rounded-full font-bold transition flex items-center gap-1 shadow-sm active:scale-95"
                               >
                                 ✨ Run On-Prem AI

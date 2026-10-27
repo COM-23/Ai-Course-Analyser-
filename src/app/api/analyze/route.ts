@@ -284,7 +284,7 @@ class LocalHeuristicBrain {
       });
   }
 
-  async analyze(text: string, context: string, manualCountry: string, manualIntake: string, aiStrictness: string = "standard", realtimeFetching: boolean = false, customAiEndpoint: string = "", isComparison: boolean = false) {
+  async analyze(text: string, context: string, manualCountry: string, manualIntake: string, aiStrictness: string = "standard", realtimeFetching: boolean = false, customAiEndpoint: string = "", isComparison: boolean = false, requestedModel: string = "") {
     // Strictly identify real cloud serverless environments (Netlify / Vercel / AWS Lambda)
     const isCloudEnv = !!(
       process.env.NETLIFY ||
@@ -1282,12 +1282,6 @@ You are an expert admission counselor AI. Write a concise 3-part report with EXA
 Be concise and factual.<|eot_id|><|start_header_id|>user<|end_header_id|>
 Student: ${extractedName} | Goal: ${degreeObjective} in ${degreeDisplay} | CGPA: ${extractedCgpa}/10 | Budget: ${targetSymbol}${convertedBudget.toLocaleString('en-US', {maximumFractionDigits: 0})} | Destination: ${countryDisplay} | Notes: ${cleanNotes}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`;
         
-        // Fast comparison path: instantly generate structured comparison summary
-        if (isComparison) {
-            finalSummary = `**Academic Background**\n${extractedName} evaluated for ${countryDisplay} admission criteria across ${result.recommendedColleges.length} institutional programs.\n\n**Financial & Location Preferences**\nTargeting ${countryDisplay} with an estimated budget of ${targetSymbol}${convertedBudget.toLocaleString('en-US', {maximumFractionDigits: 0})}.\n\n**Counselor Notes**\nInstitutional comparison options ranked by entrance benchmarks, acceptance odds, and curriculum match.`;
-            result.isAiGenerated = true;
-        }
-
         // Tier 1: Fast Cloud LLM (Groq) if configured - returns in ~400ms
         if (!finalSummary && process.env.GROQ_API_KEY) {
             try {
@@ -1353,7 +1347,7 @@ Student: ${extractedName} | Goal: ${degreeObjective} in ${degreeDisplay} | CGPA:
 
             let aiEndpoint = (customAiEndpoint || process.env.LOCAL_AI_ENDPOINT || '').trim();
             let aiApiKey = (process.env.LOCAL_AI_API_KEY || '').trim();
-            const aiModel = process.env.LOCAL_AI_MODEL || 'llama3.1';
+            const aiModel = (requestedModel || process.env.LOCAL_AI_MODEL || 'llama3.1').trim();
 
             // Check if Super Admin configured an AI endpoint in UI Settings table (if not passed by client)
             if (!aiEndpoint) {
@@ -1396,30 +1390,63 @@ Student: ${extractedName} | Goal: ${degreeObjective} in ${degreeDisplay} | CGPA:
                 : [aiEndpoint, 'http://192.168.0.76:11434/api/generate', 'http://192.168.0.66:11434/api/generate', 'http://127.0.0.1:11434/api/generate']
             ).filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
 
-            // Cloud serverless timeout is 23s (within Netlify 26s hard gateway limit).
+            // Cloud serverless timeout is 20s (safely inside Netlify 26s hard gateway limit).
             // On local on-premise servers (Windows / Mac / Linux), allow 120 seconds.
-            const timeoutMs = isCloudEnv ? 23000 : 120000;
+            const timeoutMs = isCloudEnv ? 20000 : 120000;
+            // 60 tokens generates a comprehensive 3-part structured summary in 3-5s on CPU
             const tokenLimit = isCloudEnv ? 60 : 100;
 
             let ollamaResponse: Response | null = null;
             let lastAiError: any = null;
+            let finalModelUsed = aiModel;
 
             for (const targetUrl of candidateEndpoints) {
                 try {
+                    const baseUrl = targetUrl.replace(/\/api\/generate\/?$/, '').replace(/\/+$/, '');
                     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
                     if (aiApiKey) {
                         headers['Authorization'] = `Bearer ${aiApiKey}`;
                         headers['x-api-key'] = aiApiKey;
                     }
 
+                    // Auto-discover exact installed models from /api/tags (with and without auth)
+                    let modelToUse = aiModel;
+                    let availableModels: string[] = [];
+                    try {
+                        let tagsRes = await fetch(`${baseUrl}/api/tags`, {
+                            method: 'GET',
+                            headers: aiApiKey ? { 'Authorization': `Bearer ${aiApiKey}`, 'x-api-key': aiApiKey } : {},
+                            signal: AbortSignal.timeout(4000)
+                        });
+                        if (!tagsRes.ok && (tagsRes.status === 401 || tagsRes.status === 403)) {
+                            tagsRes = await fetch(`${baseUrl}/api/tags`, {
+                                method: 'GET',
+                                signal: AbortSignal.timeout(4000)
+                            });
+                        }
+                        if (tagsRes.ok) {
+                            const tagsData = await tagsRes.json();
+                            availableModels = (tagsData.models || []).map((m: any) => m.name || m.model || '');
+                            if (availableModels.length > 0) {
+                                const exactMatch = availableModels.find((m: string) => m.toLowerCase() === aiModel.toLowerCase());
+                                const latestMatch = availableModels.find((m: string) => m.toLowerCase() === `${aiModel.toLowerCase()}:latest`);
+                                const baseMatch = availableModels.find((m: string) => m.toLowerCase().startsWith(aiModel.toLowerCase().split(':')[0]));
+                                const llamaMatch = availableModels.find((m: string) => m.toLowerCase().includes('llama') || m.toLowerCase().includes('mistral') || m.toLowerCase().includes('qwen'));
+                                modelToUse = exactMatch || latestMatch || baseMatch || llamaMatch || availableModels[0];
+                            }
+                        }
+                    } catch (tagsErr) {}
+
+                    finalModelUsed = modelToUse;
+
                     ollamaResponse = await fetch(targetUrl, {
                         method: 'POST',
                         headers,
                         body: JSON.stringify({
-                            model: aiModel,
+                            model: modelToUse,
                             prompt: prompt,
                             stream: false,
-                            keep_alive: -1,
+                            keep_alive: "60m",
                             options: {
                                 num_predict: tokenLimit,
                                 temperature: 0.2
@@ -1435,10 +1462,10 @@ Student: ${extractedName} | Goal: ${degreeObjective} in ${degreeDisplay} | CGPA:
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
                                 body: JSON.stringify({
-                                    model: aiModel,
+                                    model: modelToUse,
                                     prompt: prompt,
                                     stream: false,
-                                    keep_alive: -1,
+                                    keep_alive: "60m",
                                     options: {
                                         num_predict: tokenLimit,
                                         temperature: 0.2
@@ -1450,6 +1477,40 @@ Student: ${extractedName} | Goal: ${degreeObjective} in ${degreeDisplay} | CGPA:
                                 ollamaResponse = fallbackResponse;
                             }
                         } catch (e) {}
+                    }
+
+                    // If 404 (model not found), retry with tag variations or discovered available models
+                    if (ollamaResponse && ollamaResponse.status === 404) {
+                        const candidateRetries = [
+                            modelToUse.includes(':') ? modelToUse.split(':')[0] : `${modelToUse}:latest`,
+                            'llama3.1:latest',
+                            'llama3.1',
+                            'llama3.2:latest',
+                            'llama3.2',
+                            availableModels[0]
+                        ].filter(Boolean).filter((m, idx, arr) => arr.indexOf(m) === idx && m !== modelToUse);
+
+                        for (const altModel of candidateRetries) {
+                            try {
+                                const retryResponse = await fetch(targetUrl, {
+                                    method: 'POST',
+                                    headers,
+                                    body: JSON.stringify({
+                                        model: altModel,
+                                        prompt: prompt,
+                                        stream: false,
+                                        keep_alive: "60m",
+                                        options: { num_predict: tokenLimit, temperature: 0.2 }
+                                    }),
+                                    signal: AbortSignal.timeout(timeoutMs)
+                                });
+                                if (retryResponse && retryResponse.ok) {
+                                    ollamaResponse = retryResponse;
+                                    finalModelUsed = altModel;
+                                    break;
+                                }
+                            } catch (e) {}
+                        }
                     }
 
                     if (ollamaResponse && ollamaResponse.ok) {
@@ -1468,9 +1529,13 @@ Student: ${extractedName} | Goal: ${degreeObjective} in ${degreeDisplay} | CGPA:
             
             if (ollamaResponse && ollamaResponse.ok) {
                 const data = await ollamaResponse.json();
-                if (data.response) {
-                    finalSummary = data.response.trim();
+                const aiText = (data.response || data.message?.content || data.choices?.[0]?.message?.content || '').trim();
+                if (aiText) {
+                    finalSummary = aiText;
                     result.isAiGenerated = true;
+                    (result as any).aiModelUsed = finalModelUsed;
+                } else {
+                    throw new Error("Ollama returned empty response content");
                 }
             } else {
                 throw new Error(`Ollama endpoint returned status ${ollamaResponse?.status}`);
@@ -1544,6 +1609,22 @@ export async function POST(req: NextRequest) {
 
     let aiStrictness = body.aiStrictness || "standard";
     const customAiEndpoint = (body.aiEndpoint || body.customAiEndpoint || "").trim();
+    const requestedModel = (body.aiModel || body.model || "").trim();
+
+    // Dynamically persist client-supplied live endpoint into settings table for cross-request resiliency
+    if (customAiEndpoint) {
+      try {
+        getDb().exec(`
+          CREATE TABLE IF NOT EXISTS settings (id TEXT PRIMARY KEY, value TEXT);
+        `);
+        const stmt = getDb().prepare(`
+          INSERT INTO settings (id, value) VALUES ('aiEndpoint', ?)
+          ON CONFLICT(id) DO UPDATE SET value = excluded.value
+        `);
+        stmt.run(JSON.stringify(customAiEndpoint));
+      } catch (dbSyncErr) {}
+    }
+
     if (!body.aiStrictness) {
       try {
         const row = getDb().prepare("SELECT value FROM settings WHERE id = 'aiStrictness'").get() as any;
@@ -1557,7 +1638,7 @@ export async function POST(req: NextRequest) {
 
     // 2. USE THE CUSTOM INDEPENDENT BRAIN
     const brain = new LocalHeuristicBrain();
-    const analysis = await brain.analyze(extractedText, additionalContext || "", destinationCountry, targetIntake, aiStrictness, realtimeFetching, customAiEndpoint, isComparison);
+    const analysis = await brain.analyze(extractedText, additionalContext || "", destinationCountry, targetIntake, aiStrictness, realtimeFetching, customAiEndpoint, isComparison, requestedModel);
 
     try {
       getDb().exec(`
