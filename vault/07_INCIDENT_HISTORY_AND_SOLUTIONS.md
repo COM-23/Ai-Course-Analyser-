@@ -77,3 +77,16 @@ This log records every technical incident, its underlying root cause, and the ex
   - Gated Google scraping: `shouldScrape = realtimeFetching || (eligibleColleges.length === 0)`. The 1,522 universities in the database are prioritized first; Google scraping only triggers if zero colleges match the criteria or if the user checks the "Real-time Live Google Search" checkbox.
   - Added `export const maxDuration = 26;` to `src/app/api/analyze/route.ts` for full Netlify serverless execution headroom.
   - Extended cloud AI timeout `timeoutMs` to 20,000ms (20s) and set `tokenLimit` to 90 tokens, allowing Ollama to finish its full inference before the cloud function returns the true AI report.
+
+---
+
+### Incident 6: Premature Abort & Client Mount Gating in New Netlify Deployments
+- **Symptom**: On new Netlify deployment, AI showed connected in Settings, but running analysis gave instant heuristic answers (`⚡ Heuristic Assessment (Execution timeout)`), and students list was empty on refresh.
+- **Root Cause**:
+  1. `timeoutMs` in `src/app/api/analyze/route.ts` was set to 9500ms (9.5s), but every analysis request also ran a blocking GET request to `/api/tags` (taking ~2-3s across the tunnel), leaving only ~6.5s for Ollama token generation on CPU. When generation exceeded 6.5s, `AbortSignal.timeout(9500)` terminated the connection and activated the heuristic fallback prematurely.
+  2. In `src/app/page.tsx`, `checkAiHealth()` and `fetch('/api/settings')` were guarded by `if (!currentUser || currentUser.role !== 'super_admin') return;`, and student data loading was guarded by `if (!currentUser) return;`. Unauthenticated users or counselors opening the site saw empty student rosters on page refresh and lacked active AI status checks.
+- **Solution**:
+  1. Removed the redundant `/api/tags` network probe from the critical path of `analyze` so the `/api/chat` request begins immediately.
+  2. Extended serverless AI `timeoutMs` to 22,000ms (22s) and kept `tokenLimit = 40` so Ollama completes inference cleanly in ~7-8s without timing out.
+  3. Made `checkAiHealth()`, `fetch('/api/settings')`, and student roster loading from `localStorage` + `/api/students` run unconditionally on client mount.
+  4. Preserved strict constraint: Zero changes or modifications made to the on-premise Linux AI server (`192.168.0.66`).
