@@ -4,15 +4,11 @@
 [build.environment]
   NODE_VERSION = "20"
   SECRETS_SCAN_ENABLED = "false"
-  LOCAL_AI_ENDPOINT = "https://millions-librarian-consumer-desktops.trycloudflare.com/api/generate"
   LOCAL_AI_API_KEY = "lo_live_qDYoGoQFKz7bM35ijtVa-9BwznoFZhqO"
   LOCAL_AI_MODEL = "llama3.1:latest"
 
 [context.production.environment]
-  LOCAL_AI_ENDPOINT = "https://millions-librarian-consumer-desktops.trycloudflare.com/api/generate"
+  NODE_VERSION = "20"
+  SECRETS_SCAN_ENABLED = "false"
   LOCAL_AI_API_KEY = "lo_live_qDYoGoQFKz7bM35ijtVa-9BwznoFZhqO"
   LOCAL_AI_MODEL = "llama3.1:latest"
-
-
-
-

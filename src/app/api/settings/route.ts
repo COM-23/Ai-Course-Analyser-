@@ -41,16 +41,18 @@ export async function GET(req: Request) {
         return acc;
       }, {});
       
-      if (!settings.aiEndpoint || String(settings.aiEndpoint).includes('entrepreneurs-psp-navigate-maternity') || String(settings.aiEndpoint).includes('your-tunnel-subdomain')) {
-        settings.aiEndpoint = 'https://millions-librarian-consumer-desktops.trycloudflare.com/api/generate';
+      if (settings.aiEndpoint && (
+        String(settings.aiEndpoint).includes('entrepreneurs-psp-navigate-maternity') ||
+        String(settings.aiEndpoint).includes('your-tunnel-subdomain') ||
+        String(settings.aiEndpoint).includes('millions-librarian-consumer-desktops')
+      )) {
+        delete settings.aiEndpoint;
       }
 
       return NextResponse.json(settings);
     } catch (dbErr) {
       console.warn("DB settings read warning (cloud dynamic fallback):", dbErr);
-      return NextResponse.json({
-        aiEndpoint: 'https://millions-librarian-consumer-desktops.trycloudflare.com/api/generate'
-      });
+      return NextResponse.json({});
     }
   } catch (error) {
     return NextResponse.json({});

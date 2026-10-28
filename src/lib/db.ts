@@ -265,11 +265,15 @@ export function getDb(): DatabaseAdapter {
   // One-time migration: fix any existing rows that have the wrong role value
   try { db.prepare("UPDATE users SET role = 'super_admin' WHERE role = 'superadmin'").run(); } catch (e) {}
 
-  // Ensure default AI Endpoint setting is always initialized
+  // Clean up any obsolete hardcoded AI Endpoint settings
   try {
     const existingAiEp = db.prepare("SELECT value FROM settings WHERE id = 'aiEndpoint'").get() as any;
-    if (!existingAiEp || !existingAiEp.value || String(existingAiEp.value).includes('entrepreneurs-psp-navigate-maternity') || String(existingAiEp.value).includes('your-tunnel-subdomain')) {
-      db.prepare("INSERT OR REPLACE INTO settings (id, value) VALUES ('aiEndpoint', ?)").run(JSON.stringify("https://millions-librarian-consumer-desktops.trycloudflare.com/api/generate"));
+    if (existingAiEp && existingAiEp.value && (
+      String(existingAiEp.value).includes('entrepreneurs-psp-navigate-maternity') ||
+      String(existingAiEp.value).includes('your-tunnel-subdomain') ||
+      String(existingAiEp.value).includes('millions-librarian-consumer-desktops')
+    )) {
+      db.prepare("DELETE FROM settings WHERE id = 'aiEndpoint'").run();
     }
   } catch (e) {}
 
@@ -388,12 +392,12 @@ function createPureJsDatabase(storagePath: string): DatabaseAdapter {
     memoryData.settings = JSON.parse(JSON.stringify(embeddedSeed.settings));
   }
   const existingEpSetting = memoryData.settings.find((s: any) => s.id === 'aiEndpoint');
-  if (!existingEpSetting || !existingEpSetting.value || String(existingEpSetting.value).includes('entrepreneurs-psp-navigate-maternity') || String(existingEpSetting.value).includes('your-tunnel-subdomain')) {
-    if (existingEpSetting) {
-      existingEpSetting.value = JSON.stringify("https://millions-librarian-consumer-desktops.trycloudflare.com/api/generate");
-    } else {
-      memoryData.settings.push({ id: 'aiEndpoint', value: JSON.stringify("https://millions-librarian-consumer-desktops.trycloudflare.com/api/generate") });
-    }
+  if (existingEpSetting && existingEpSetting.value && (
+    String(existingEpSetting.value).includes('entrepreneurs-psp-navigate-maternity') ||
+    String(existingEpSetting.value).includes('your-tunnel-subdomain') ||
+    String(existingEpSetting.value).includes('millions-librarian-consumer-desktops')
+  )) {
+    memoryData.settings = memoryData.settings.filter((s: any) => s.id !== 'aiEndpoint');
   }
 
   // Ensure default superadmin exists

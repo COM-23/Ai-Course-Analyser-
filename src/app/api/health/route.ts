@@ -79,9 +79,13 @@ export async function GET(req: Request) {
     } catch (e) {}
   }
 
-  // 5. Hardcoded Permanent Fallback for Netlify Cloud deployments
-  if (!configuredEndpoint) {
-    configuredEndpoint = 'https://millions-librarian-consumer-desktops.trycloudflare.com/api/generate';
+  // 5. Filter out any obsolete or dead placeholders
+  if (configuredEndpoint && (
+    configuredEndpoint.includes('entrepreneurs-psp-navigate-maternity') ||
+    configuredEndpoint.includes('your-tunnel-subdomain') ||
+    configuredEndpoint.includes('millions-librarian-consumer-desktops')
+  )) {
+    configuredEndpoint = '';
   }
 
   // 6. Normalize configuredEndpoint if present
@@ -93,27 +97,23 @@ export async function GET(req: Request) {
     configuredApiKey = cloudDefaultApiKey;
   }
 
-  const permanentCloudEndpoint = 'https://millions-librarian-consumer-desktops.trycloudflare.com/api/generate';
-
   const candidateEndpoints = (isCloudEnv
-    ? [configuredEndpoint, permanentCloudEndpoint]
+    ? [configuredEndpoint].filter(Boolean)
     : [
         configuredEndpoint,
-        permanentCloudEndpoint,
         'http://192.168.0.66:11435/api/generate',
         'http://192.168.0.66:11434/api/generate',
         'http://192.168.0.76:11434/api/generate',
         'http://127.0.0.1:11435/api/generate',
         'http://127.0.0.1:11434/api/generate'
-      ]
-  ).filter(Boolean)
-   .filter(ep => !ep.includes('entrepreneurs-psp-navigate-maternity') && !ep.includes('your-tunnel-subdomain'))
+      ].filter(Boolean)
+  ).filter(ep => !ep.includes('entrepreneurs-psp-navigate-maternity') && !ep.includes('your-tunnel-subdomain') && !ep.includes('millions-librarian-consumer-desktops'))
    .filter((v, i, a) => a.indexOf(v) === i);
 
   const result: any = {
     database: { status: 'unknown' },
     aiServer: {
-      endpoint: candidateEndpoints[0] || configuredEndpoint || permanentCloudEndpoint,
+      endpoint: candidateEndpoints[0] || configuredEndpoint || '',
       model: process.env.LOCAL_AI_MODEL || 'llama3.1:latest',
       status: 'unknown'
     }

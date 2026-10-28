@@ -491,7 +491,7 @@ export default function Home() {
   
   const [agencyName, setAgencyName] = useState("Learn Overseas");
   const [aiStrictness, setAiStrictness] = useState("standard");
-  const [customAiEndpoint, setCustomAiEndpoint] = useState("https://millions-librarian-consumer-desktops.trycloudflare.com/api/generate");
+  const [customAiEndpoint, setCustomAiEndpoint] = useState<string>("");
   const [aiHealthStatus, setAiHealthStatus] = useState<any>(null);
   const [isCheckingAi, setIsCheckingAi] = useState(false);
 
@@ -517,12 +517,11 @@ export default function Home() {
   useEffect(() => {
     try {
       const savedEndpoint = localStorage.getItem('learn_overseas_custom_ai_endpoint');
-      if (savedEndpoint && !savedEndpoint.includes('entrepreneurs-psp-navigate-maternity') && !savedEndpoint.includes('your-tunnel-subdomain')) {
+      if (savedEndpoint && !savedEndpoint.includes('entrepreneurs-psp-navigate-maternity') && !savedEndpoint.includes('your-tunnel-subdomain') && !savedEndpoint.includes('millions-librarian-consumer-desktops')) {
         setCustomAiEndpoint(cleanAndNormalizeAiUrl(savedEndpoint));
       } else {
-        const liveEp = "https://millions-librarian-consumer-desktops.trycloudflare.com/api/generate";
-        setCustomAiEndpoint(liveEp);
-        try { localStorage.setItem('learn_overseas_custom_ai_endpoint', liveEp); } catch (e) {}
+        try { localStorage.removeItem('learn_overseas_custom_ai_endpoint'); } catch (e) {}
+        setCustomAiEndpoint('');
       }
       const savedStrictness = localStorage.getItem('learn_overseas_ai_strictness');
       if (savedStrictness) {
@@ -583,8 +582,11 @@ export default function Home() {
     if (!ep && aiHealthStatus?.endpoint) {
       ep = String(aiHealthStatus.endpoint).trim();
     }
-    if (!ep || ep.includes('entrepreneurs-psp-navigate-maternity') || ep.includes('your-tunnel-subdomain')) {
-      ep = 'https://millions-librarian-consumer-desktops.trycloudflare.com/api/generate';
+    if (ep.includes('entrepreneurs-psp-navigate-maternity') || ep.includes('your-tunnel-subdomain') || ep.includes('millions-librarian-consumer-desktops')) {
+      ep = '';
+    }
+    if (!ep) {
+      return;
     }
 
     let targetUrl = cleanAndNormalizeAiUrl(ep);
@@ -880,15 +882,20 @@ ${chatUser}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`;
           if (data.aiStrictness) setAiStrictness(data.aiStrictness);
           let localEp = "";
           try { localEp = localStorage.getItem('learn_overseas_custom_ai_endpoint') || ""; } catch (e) {}
-          if (localEp && (localEp.includes('entrepreneurs-psp-navigate-maternity') || localEp.includes('your-tunnel-subdomain'))) {
+          if (localEp && (localEp.includes('entrepreneurs-psp-navigate-maternity') || localEp.includes('your-tunnel-subdomain') || localEp.includes('millions-librarian-consumer-desktops'))) {
             localEp = "";
+            try { localStorage.removeItem('learn_overseas_custom_ai_endpoint'); } catch (e) {}
           }
-          const epToUse = data.aiEndpoint && !data.aiEndpoint.includes('entrepreneurs-psp-navigate-maternity') && !data.aiEndpoint.includes('your-tunnel-subdomain')
+          const epToUse = data.aiEndpoint && !data.aiEndpoint.includes('entrepreneurs-psp-navigate-maternity') && !data.aiEndpoint.includes('your-tunnel-subdomain') && !data.aiEndpoint.includes('millions-librarian-consumer-desktops')
             ? data.aiEndpoint
-            : (localEp || 'https://millions-librarian-consumer-desktops.trycloudflare.com/api/generate');
-          const clean = cleanAndNormalizeAiUrl(epToUse);
-          setCustomAiEndpoint(clean);
-          try { localStorage.setItem('learn_overseas_custom_ai_endpoint', clean); } catch (e) {}
+            : localEp;
+          if (epToUse) {
+            const clean = cleanAndNormalizeAiUrl(epToUse);
+            setCustomAiEndpoint(clean);
+            try { localStorage.setItem('learn_overseas_custom_ai_endpoint', clean); } catch (e) {}
+          } else {
+            setCustomAiEndpoint("");
+          }
         }
       })
       .catch(err => console.error('Error fetching settings:', err));
@@ -1099,7 +1106,7 @@ ${chatUser}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`;
         counselorId: currentUser ? currentUser.id : 1,
         realtimeFetching,
         existingColleges: appendMode && result ? result.recommendedColleges : undefined,
-        aiEndpoint: customAiEndpoint || (typeof window !== 'undefined' ? localStorage.getItem('learn_overseas_custom_ai_endpoint') || '' : '') || 'https://millions-librarian-consumer-desktops.trycloudflare.com/api/generate',
+        aiEndpoint: (customAiEndpoint || (typeof window !== 'undefined' ? localStorage.getItem('learn_overseas_custom_ai_endpoint') || '' : '')).trim(),
         aiApiKey: 'lo_live_qDYoGoQFKz7bM35ijtVa-9BwznoFZhqO',
         aiStrictness,
         aiModel: aiHealthStatus?.model || aiHealthStatus?.models?.[0] || 'llama3.1:latest'
@@ -1171,8 +1178,8 @@ ${chatUser}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`;
 
       // Dual-Failsafe: If Netlify returned Tier 3 fallback due to serverless gateway cutoff,
       // and we have an active on-premise tunnel endpoint, seamlessly finish genuine AI generation from browser!
-      const directEp = customAiEndpoint || (typeof window !== 'undefined' ? localStorage.getItem('learn_overseas_custom_ai_endpoint') || '' : '') || 'https://millions-librarian-consumer-desktops.trycloudflare.com/api/generate';
-      if (!data.isAiGenerated && directEp) {
+      const directEp = (customAiEndpoint || (typeof window !== 'undefined' ? localStorage.getItem('learn_overseas_custom_ai_endpoint') || '' : '')).trim();
+      if (!data.isAiGenerated && directEp && !directEp.includes('millions-librarian-consumer-desktops') && !directEp.includes('entrepreneurs-psp-navigate-maternity') && !directEp.includes('your-tunnel-subdomain')) {
         generateAiSummaryDirectly(data, directEp);
       } 
     } catch (err: any) {
@@ -1234,7 +1241,7 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
           compareCountryIndex: i,
           totalCompareCountries: compareCountries.length,
           realtimeFetching: false,
-          aiEndpoint: customAiEndpoint || (typeof window !== 'undefined' ? localStorage.getItem('learn_overseas_custom_ai_endpoint') || '' : '') || 'https://millions-librarian-consumer-desktops.trycloudflare.com/api/generate',
+          aiEndpoint: (customAiEndpoint || (typeof window !== 'undefined' ? localStorage.getItem('learn_overseas_custom_ai_endpoint') || '' : '')).trim(),
           aiStrictness,
           aiModel: aiHealthStatus?.model || aiHealthStatus?.models?.[0] || 'llama3.1:latest'
         };
@@ -1323,8 +1330,8 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
           body: JSON.stringify(studentWithComparison)
         }).catch(() => {});
 
-        const directEp = customAiEndpoint || (typeof window !== 'undefined' ? localStorage.getItem('learn_overseas_custom_ai_endpoint') || '' : '') || 'https://millions-librarian-consumer-desktops.trycloudflare.com/api/generate';
-        if (!studentWithComparison.isAiGenerated && directEp) {
+        const directEp = (customAiEndpoint || (typeof window !== 'undefined' ? localStorage.getItem('learn_overseas_custom_ai_endpoint') || '' : '')).trim();
+        if (!studentWithComparison.isAiGenerated && directEp && !directEp.includes('millions-librarian-consumer-desktops') && !directEp.includes('entrepreneurs-psp-navigate-maternity') && !directEp.includes('your-tunnel-subdomain')) {
           generateAiSummaryDirectly(studentWithComparison, directEp);
         }
       }
@@ -3075,7 +3082,7 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
                                     localStorage.setItem('learn_overseas_custom_ai_endpoint', val);
                                   } catch (err) {}
                                 }}
-                                placeholder="https://millions-librarian-consumer-desktops.trycloudflare.com/api/generate"
+                                placeholder="https://<your-tunnel-subdomain>.trycloudflare.com/api/generate"
                                 className="flex-1 px-4 py-3 bg-[#0A0A0B] border border-white/10 rounded-xl text-sm text-slate-200 outline-none focus:border-[#FC7133]/50 shadow-inner font-mono text-xs"
                               />
                               <button
