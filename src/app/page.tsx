@@ -517,7 +517,7 @@ export default function Home() {
   useEffect(() => {
     try {
       const savedEndpoint = localStorage.getItem('learn_overseas_custom_ai_endpoint');
-      if (savedEndpoint && !savedEndpoint.includes('entrepreneurs-psp-navigate-maternity') && !savedEndpoint.includes('your-tunnel-subdomain') && !savedEndpoint.includes('millions-librarian-consumer-desktops')) {
+      if (savedEndpoint && !savedEndpoint.includes('entrepreneurs-psp-navigate-maternity') && !savedEndpoint.includes('your-tunnel-subdomain') && !savedEndpoint.includes('millions-librarian-consumer-desktops') && !savedEndpoint.includes('developers.cloudflare.com')) {
         setCustomAiEndpoint(cleanAndNormalizeAiUrl(savedEndpoint));
       } else {
         try { localStorage.removeItem('learn_overseas_custom_ai_endpoint'); } catch (e) {}
@@ -582,7 +582,7 @@ export default function Home() {
     if (!ep && aiHealthStatus?.endpoint) {
       ep = String(aiHealthStatus.endpoint).trim();
     }
-    if (ep.includes('entrepreneurs-psp-navigate-maternity') || ep.includes('your-tunnel-subdomain') || ep.includes('millions-librarian-consumer-desktops')) {
+    if (ep.includes('entrepreneurs-psp-navigate-maternity') || ep.includes('your-tunnel-subdomain') || ep.includes('millions-librarian-consumer-desktops') || ep.includes('developers.cloudflare.com')) {
       ep = '';
     }
     if (!ep) {
@@ -882,11 +882,11 @@ ${chatUser}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`;
           if (data.aiStrictness) setAiStrictness(data.aiStrictness);
           let localEp = "";
           try { localEp = localStorage.getItem('learn_overseas_custom_ai_endpoint') || ""; } catch (e) {}
-          if (localEp && (localEp.includes('entrepreneurs-psp-navigate-maternity') || localEp.includes('your-tunnel-subdomain') || localEp.includes('millions-librarian-consumer-desktops'))) {
+          if (localEp && (localEp.includes('entrepreneurs-psp-navigate-maternity') || localEp.includes('your-tunnel-subdomain') || localEp.includes('millions-librarian-consumer-desktops') || localEp.includes('developers.cloudflare.com'))) {
             localEp = "";
             try { localStorage.removeItem('learn_overseas_custom_ai_endpoint'); } catch (e) {}
           }
-          const epToUse = data.aiEndpoint && !data.aiEndpoint.includes('entrepreneurs-psp-navigate-maternity') && !data.aiEndpoint.includes('your-tunnel-subdomain') && !data.aiEndpoint.includes('millions-librarian-consumer-desktops')
+          const epToUse = data.aiEndpoint && !data.aiEndpoint.includes('entrepreneurs-psp-navigate-maternity') && !data.aiEndpoint.includes('your-tunnel-subdomain') && !data.aiEndpoint.includes('millions-librarian-consumer-desktops') && !data.aiEndpoint.includes('developers.cloudflare.com')
             ? data.aiEndpoint
             : localEp;
           if (epToUse) {
@@ -917,6 +917,10 @@ ${chatUser}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`;
   const saveSettings = async (payload: any) => {
     try {
       if (payload.aiEndpoint !== undefined) {
+        if (payload.aiEndpoint && payload.aiEndpoint.includes('developers.cloudflare.com')) {
+          alert("Notice: 'developers.cloudflare.com' is Cloudflare's documentation link from the banner.\n\nIn your Linux terminal, copy the assigned tunnel URL shown in the box directly below that banner: https://<subdomain>.trycloudflare.com");
+          return;
+        }
         payload.aiEndpoint = cleanAndNormalizeAiUrl(payload.aiEndpoint);
         try { localStorage.setItem('learn_overseas_custom_ai_endpoint', payload.aiEndpoint); } catch (e) {}
       }
@@ -932,13 +936,18 @@ ${chatUser}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`;
         credentials: 'include',
         body: JSON.stringify(payload)
       });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        alert(data.error || 'Failed to save settings');
+        return;
+      }
       if (payload.aiEndpoint) {
         checkAiHealth(payload.aiEndpoint);
       }
       alert('Settings saved successfully!');
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      alert('Settings saved successfully!');
+      alert(err?.message || 'Settings saved successfully!');
     }
   };
 
@@ -1179,7 +1188,7 @@ ${chatUser}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`;
       // Dual-Failsafe: If Netlify returned Tier 3 fallback due to serverless gateway cutoff,
       // and we have an active on-premise tunnel endpoint, seamlessly finish genuine AI generation from browser!
       const directEp = (customAiEndpoint || (typeof window !== 'undefined' ? localStorage.getItem('learn_overseas_custom_ai_endpoint') || '' : '')).trim();
-      if (!data.isAiGenerated && directEp && !directEp.includes('millions-librarian-consumer-desktops') && !directEp.includes('entrepreneurs-psp-navigate-maternity') && !directEp.includes('your-tunnel-subdomain')) {
+      if (!data.isAiGenerated && directEp && !directEp.includes('millions-librarian-consumer-desktops') && !directEp.includes('entrepreneurs-psp-navigate-maternity') && !directEp.includes('your-tunnel-subdomain') && !directEp.includes('developers.cloudflare.com')) {
         generateAiSummaryDirectly(data, directEp);
       } 
     } catch (err: any) {
@@ -1331,7 +1340,7 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
         }).catch(() => {});
 
         const directEp = (customAiEndpoint || (typeof window !== 'undefined' ? localStorage.getItem('learn_overseas_custom_ai_endpoint') || '' : '')).trim();
-        if (!studentWithComparison.isAiGenerated && directEp && !directEp.includes('millions-librarian-consumer-desktops') && !directEp.includes('entrepreneurs-psp-navigate-maternity') && !directEp.includes('your-tunnel-subdomain')) {
+        if (!studentWithComparison.isAiGenerated && directEp && !directEp.includes('millions-librarian-consumer-desktops') && !directEp.includes('entrepreneurs-psp-navigate-maternity') && !directEp.includes('your-tunnel-subdomain') && !directEp.includes('developers.cloudflare.com')) {
           generateAiSummaryDirectly(studentWithComparison, directEp);
         }
       }
@@ -3088,6 +3097,10 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
                               <button
                                 type="button"
                                 onClick={() => {
+                                  if (customAiEndpoint && customAiEndpoint.includes('developers.cloudflare.com')) {
+                                    alert("Notice: 'developers.cloudflare.com' is Cloudflare's documentation link from the banner.\n\nIn your Linux terminal, copy the assigned tunnel URL shown in the box directly below that banner: https://<subdomain>.trycloudflare.com");
+                                    return;
+                                  }
                                   const normalized = cleanAndNormalizeAiUrl(customAiEndpoint);
                                   if (normalized) {
                                     setCustomAiEndpoint(normalized);
@@ -3104,6 +3117,15 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
                                 Save & Connect
                               </button>
                             </div>
+                            {customAiEndpoint && customAiEndpoint.includes('developers.cloudflare.com') && (
+                              <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl text-xs text-amber-300 space-y-1 mt-2">
+                                <div className="font-bold">Notice: Documentation URL detected</div>
+                                <div>
+                                  <code>developers.cloudflare.com</code> is the documentation link from the banner.
+                                  In your Linux terminal, copy the assigned tunnel link shown directly below that banner: <code>https://&lt;subdomain&gt;.trycloudflare.com</code>.
+                                </div>
+                              </div>
+                            )}
                             <p className="text-xs text-slate-500 mt-1">
                               Auto-managed by <code>tunnel-service.js</code>. You can also paste a permanent Cloudflare Named Tunnel or Ngrok domain here anytime.
                             </p>

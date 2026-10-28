@@ -97,23 +97,10 @@ export async function GET(req: Request) {
     configuredApiKey = cloudDefaultApiKey;
   }
 
-  const candidateEndpoints = (isCloudEnv
-    ? [configuredEndpoint].filter(Boolean)
-    : [
-        configuredEndpoint,
-        'http://192.168.0.66:11435/api/generate',
-        'http://192.168.0.66:11434/api/generate',
-        'http://192.168.0.76:11434/api/generate',
-        'http://127.0.0.1:11435/api/generate',
-        'http://127.0.0.1:11434/api/generate'
-      ].filter(Boolean)
-  ).filter(ep => !ep.includes('entrepreneurs-psp-navigate-maternity') && !ep.includes('your-tunnel-subdomain') && !ep.includes('millions-librarian-consumer-desktops'))
-   .filter((v, i, a) => a.indexOf(v) === i);
-
   const result: any = {
     database: { status: 'unknown' },
     aiServer: {
-      endpoint: candidateEndpoints[0] || configuredEndpoint || '',
+      endpoint: configuredEndpoint || '',
       model: process.env.LOCAL_AI_MODEL || 'llama3.1:latest',
       status: 'unknown'
     }
@@ -134,11 +121,37 @@ export async function GET(req: Request) {
     };
   }
 
+  // Explicit validation against Cloudflare documentation URL
+  if (configuredEndpoint && configuredEndpoint.includes('developers.cloudflare.com')) {
+    result.aiServer.status = 'error';
+    result.aiServer.error = "Invalid endpoint: 'developers.cloudflare.com' is Cloudflare's documentation link from the banner. In your Linux terminal, copy the assigned tunnel link shown directly below it: https://<subdomain>.trycloudflare.com";
+    return NextResponse.json(result);
+  }
+
+  const candidateEndpoints = (isCloudEnv
+    ? [configuredEndpoint].filter(Boolean)
+    : [
+        configuredEndpoint,
+        'http://192.168.0.66:11435/api/generate',
+        'http://192.168.0.66:11434/api/generate',
+        'http://192.168.0.76:11434/api/generate',
+        'http://127.0.0.1:11435/api/generate',
+        'http://127.0.0.1:11434/api/generate'
+      ].filter(Boolean)
+  ).filter(ep => 
+    !ep.includes('entrepreneurs-psp-navigate-maternity') && 
+    !ep.includes('your-tunnel-subdomain') && 
+    !ep.includes('millions-librarian-consumer-desktops') &&
+    !ep.includes('developers.cloudflare.com')
+  ).filter((v, i, a) => a.indexOf(v) === i);
+
   if (candidateEndpoints.length === 0) {
     result.aiServer.status = 'unconfigured';
     result.aiServer.error = 'No AI tunnel URL configured yet. Enter your Cloudflare URL in Settings to connect.';
     return NextResponse.json(result);
   }
+
+  result.aiServer.endpoint = candidateEndpoints[0];
 
   // 2. Multi-Probe candidate AI endpoints with resilient fallback
   let lastError = '';
@@ -165,9 +178,14 @@ export async function GET(req: Request) {
           signal: AbortSignal.timeout(probeTimeout)
         });
         if (tagsRes.ok) {
-          const data = await tagsRes.json();
-          modelList = data.models?.map((m: any) => m.name) || [];
-          isUp = true;
+          const contentType = tagsRes.headers.get('content-type') || '';
+          if (!contentType.includes('text/html')) {
+            const data = await tagsRes.json();
+            if (data && Array.isArray(data.models)) {
+              modelList = data.models.map((m: any) => m.name) || [];
+              isUp = true;
+            }
+          }
         }
       } catch (e: any) {
         lastError = e?.message || String(e);
@@ -181,25 +199,39 @@ export async function GET(req: Request) {
             signal: AbortSignal.timeout(probeTimeout)
           });
           if (noAuthRes.ok) {
-            const data = await noAuthRes.json();
-            modelList = data.models?.map((m: any) => m.name) || [];
-            isUp = true;
+            const contentType = noAuthRes.headers.get('content-type') || '';
+            if (!contentType.includes('text/html')) {
+              const data = await noAuthRes.json();
+              if (data && Array.isArray(data.models)) {
+                modelList = data.models.map((m: any) => m.name) || [];
+                isUp = true;
+              }
+            }
           }
         } catch (e: any) {}
       }
 
-      // Probe 3: Lightweight gateway ping
+      // Probe 3: Lightweight gateway ping (/ping or /healthz)
       if (!isUp) {
         try {
           const pingRes = await fetch(`${baseUrl}/ping`, {
             method: 'GET',
+            headers: authHeaders,
             signal: AbortSignal.timeout(4000)
           });
-          if (pingRes.ok) isUp = true;
+          if (pingRes.ok) {
+            const contentType = pingRes.headers.get('content-type') || '';
+            if (!contentType.includes('text/html')) {
+              const pingData = await pingRes.json();
+              if (pingData && (pingData.gateway || pingData.status === 'ok')) {
+                isUp = true;
+              }
+            }
+          }
         } catch (e) {}
       }
 
-      // Probe 4: Root endpoint (standard Ollama returns "Ollama is running" with 200 OK)
+      // Probe 4: Root endpoint (standard Ollama returns plain text "Ollama is running" with 200 OK)
       if (!isUp) {
         try {
           const rootRes = await fetch(`${baseUrl}/`, {
@@ -207,19 +239,30 @@ export async function GET(req: Request) {
             signal: AbortSignal.timeout(probeTimeout)
           });
           if (rootRes.ok) {
-            isUp = true;
+            const rootText = await rootRes.text();
+            if (rootText.toLowerCase().includes('ollama is running')) {
+              isUp = true;
+            }
           }
         } catch (e) {}
       }
 
-      // Probe 5: Ollama version check
+      // Probe 5: Ollama version check (/api/version returns JSON {"version":"..."})
       if (!isUp) {
         try {
           const verRes = await fetch(`${baseUrl}/api/version`, {
             method: 'GET',
             signal: AbortSignal.timeout(probeTimeout)
           });
-          if (verRes.ok) isUp = true;
+          if (verRes.ok) {
+            const contentType = verRes.headers.get('content-type') || '';
+            if (!contentType.includes('text/html')) {
+              const verData = await verRes.json();
+              if (verData && verData.version) {
+                isUp = true;
+              }
+            }
+          }
         } catch (e) {}
       }
 
@@ -231,7 +274,7 @@ export async function GET(req: Request) {
         connected = true;
         break;
       } else if (!lastError) {
-        lastError = `Target endpoint ${ep} did not respond to health probes.`;
+        lastError = `Target endpoint ${ep} is not an active Ollama AI instance.`;
       }
     } catch (e: any) {
       lastError = `${ep}: ${e?.message || String(e)}`;

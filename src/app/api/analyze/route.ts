@@ -1372,16 +1372,20 @@ Student: ${extractedName} | Goal: ${degreeObjective} in ${degreeDisplay} | CGPA:
                 }
             } catch (e) {}
 
+            if (customAiEndpoint && customAiEndpoint.includes('developers.cloudflare.com')) {
+                throw new Error("Invalid AI endpoint: 'developers.cloudflare.com' is Cloudflare's documentation link. In your Linux terminal, copy the assigned tunnel link shown directly below that banner: https://<subdomain>.trycloudflare.com");
+            }
+
             let envEndpoint = (process.env.LOCAL_AI_ENDPOINT || '').trim();
-            if (envEndpoint.includes('entrepreneurs-psp-navigate-maternity') || envEndpoint.includes('your-tunnel-subdomain') || envEndpoint.includes('millions-librarian-consumer-desktops')) {
+            if (envEndpoint.includes('entrepreneurs-psp-navigate-maternity') || envEndpoint.includes('your-tunnel-subdomain') || envEndpoint.includes('millions-librarian-consumer-desktops') || envEndpoint.includes('developers.cloudflare.com')) {
                 envEndpoint = '';
             }
 
-            if (dbEndpoint && (dbEndpoint.includes('entrepreneurs-psp-navigate-maternity') || dbEndpoint.includes('your-tunnel-subdomain') || dbEndpoint.includes('millions-librarian-consumer-desktops'))) {
+            if (dbEndpoint && (dbEndpoint.includes('entrepreneurs-psp-navigate-maternity') || dbEndpoint.includes('your-tunnel-subdomain') || dbEndpoint.includes('millions-librarian-consumer-desktops') || dbEndpoint.includes('developers.cloudflare.com'))) {
                 dbEndpoint = '';
             }
 
-            const sanitizedCustom = (customAiEndpoint && !customAiEndpoint.includes('entrepreneurs-psp-navigate-maternity') && !customAiEndpoint.includes('your-tunnel-subdomain') && !customAiEndpoint.includes('millions-librarian-consumer-desktops'))
+            const sanitizedCustom = (customAiEndpoint && !customAiEndpoint.includes('entrepreneurs-psp-navigate-maternity') && !customAiEndpoint.includes('your-tunnel-subdomain') && !customAiEndpoint.includes('millions-librarian-consumer-desktops') && !customAiEndpoint.includes('developers.cloudflare.com'))
                 ? customAiEndpoint
                 : '';
 
@@ -1392,7 +1396,7 @@ Student: ${extractedName} | Goal: ${degreeObjective} in ${degreeDisplay} | CGPA:
                 envEndpoint
             ].filter(Boolean)
              .map((s: string) => cleanAndNormalizeUrl(String(s).trim()))
-             .filter((s: string) => s && !s.includes('entrepreneurs-psp-navigate-maternity') && !s.includes('your-tunnel-subdomain') && !s.includes('millions-librarian-consumer-desktops'));
+             .filter((s: string) => s && !s.includes('entrepreneurs-psp-navigate-maternity') && !s.includes('your-tunnel-subdomain') && !s.includes('millions-librarian-consumer-desktops') && !s.includes('developers.cloudflare.com'));
 
             if (!isCloudEnv) {
                 rawCandidates.push(

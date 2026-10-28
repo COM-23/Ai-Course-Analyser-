@@ -271,7 +271,8 @@ export function getDb(): DatabaseAdapter {
     if (existingAiEp && existingAiEp.value && (
       String(existingAiEp.value).includes('entrepreneurs-psp-navigate-maternity') ||
       String(existingAiEp.value).includes('your-tunnel-subdomain') ||
-      String(existingAiEp.value).includes('millions-librarian-consumer-desktops')
+      String(existingAiEp.value).includes('millions-librarian-consumer-desktops') ||
+      String(existingAiEp.value).includes('developers.cloudflare.com')
     )) {
       db.prepare("DELETE FROM settings WHERE id = 'aiEndpoint'").run();
     }
@@ -395,7 +396,8 @@ function createPureJsDatabase(storagePath: string): DatabaseAdapter {
   if (existingEpSetting && existingEpSetting.value && (
     String(existingEpSetting.value).includes('entrepreneurs-psp-navigate-maternity') ||
     String(existingEpSetting.value).includes('your-tunnel-subdomain') ||
-    String(existingEpSetting.value).includes('millions-librarian-consumer-desktops')
+    String(existingEpSetting.value).includes('millions-librarian-consumer-desktops') ||
+    String(existingEpSetting.value).includes('developers.cloudflare.com')
   )) {
     memoryData.settings = memoryData.settings.filter((s: any) => s.id !== 'aiEndpoint');
   }

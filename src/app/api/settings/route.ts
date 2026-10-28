@@ -44,7 +44,8 @@ export async function GET(req: Request) {
       if (settings.aiEndpoint && (
         String(settings.aiEndpoint).includes('entrepreneurs-psp-navigate-maternity') ||
         String(settings.aiEndpoint).includes('your-tunnel-subdomain') ||
-        String(settings.aiEndpoint).includes('millions-librarian-consumer-desktops')
+        String(settings.aiEndpoint).includes('millions-librarian-consumer-desktops') ||
+        String(settings.aiEndpoint).includes('developers.cloudflare.com')
       )) {
         delete settings.aiEndpoint;
       }
@@ -65,6 +66,12 @@ export async function POST(req: Request) {
     if (!isAllowed) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const data = await req.json();
+
+    if (data.aiEndpoint && typeof data.aiEndpoint === 'string' && data.aiEndpoint.includes('developers.cloudflare.com')) {
+      return NextResponse.json({ 
+        error: "Invalid endpoint: 'developers.cloudflare.com' is Cloudflare's documentation link from the banner. In your Linux terminal, copy the assigned tunnel link shown directly below that banner: https://<subdomain>.trycloudflare.com" 
+      }, { status: 400 });
+    }
     
     try {
       getDb().exec(`
