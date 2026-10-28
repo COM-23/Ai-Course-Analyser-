@@ -74,6 +74,7 @@ type AnalysisResult = {
   studentDetails?: {
     name?: string;
     cgpa: string;
+    originalGrade?: string;
     degreeObjective: string;
     primaryDomain: string;
     testScores: string;
@@ -2067,8 +2068,11 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
                   {/* Top Stats Grid */}
                   <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
                     <div className="bg-black/40 border border-white/5 p-4 rounded-2xl flex flex-col justify-center">
-                      <h5 className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">CGPA</h5>
+                      <h5 className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">CGPA / Grade</h5>
                       <p className="text-xl font-black text-white">{res.studentDetails?.cgpa} <span className="text-xs font-bold text-slate-600">/ 10</span></p>
+                      {res.studentDetails?.originalGrade && res.studentDetails.originalGrade !== `${res.studentDetails.cgpa}` && (
+                        <span className="text-[10px] font-bold text-[#F9D440] mt-0.5">{res.studentDetails.originalGrade}</span>
+                      )}
                     </div>
                     <div className="bg-black/40 border border-white/5 p-4 rounded-2xl flex flex-col justify-center">
                       <h5 className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Degree Obj</h5>

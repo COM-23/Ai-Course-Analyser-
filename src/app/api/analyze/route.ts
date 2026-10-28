@@ -459,8 +459,9 @@ class LocalHeuristicBrain {
       }
     }
 
-    // 2. EXTRACT ACADEMIC PERFORMANCE (GPA/CGPA/PERCENTAGE)
-    let extractedCgpa = 7.5; // Default average CGPA
+    // 2. EXTRACT ACADEMIC PERFORMANCE (GPA/CGPA/PERCENTAGE/MARKS)
+    let extractedCgpa = 7.5; // Default average CGPA fallback if no score found anywhere
+    let extractedOriginalGrade = ""; // Preserves raw format e.g. "85%", "3.8 / 4.0 GPA", "8.5 / 10 CGPA"
     let cgpaDetected = false;
 
     // Search sources: Prioritize counselor manual input over PDF text
@@ -472,141 +473,231 @@ class LocalHeuristicBrain {
       searchSources.push({ text: text, isCounselor: false });
     }
 
-    interface CgpaCandidate {
+    interface AcademicCandidate {
       val: number;
       scale: number | null;
+      type: 'percentage' | 'cgpa' | 'gpa_4' | 'ratio';
       isDegree: boolean;
+      isSeniorSecondary: boolean;
       isHighSchool: boolean;
       isCounselor: boolean;
+      line: string;
+      rawString: string;
     }
 
-    const allCandidates: CgpaCandidate[] = [];
+    const allCandidates: AcademicCandidate[] = [];
 
     for (const src of searchSources) {
       const lines = src.text.split(/[\r\n]+/);
       for (const rawLine of lines) {
-        const line = rawLine.toLowerCase();
+        const line = rawLine.toLowerCase().trim();
+        if (!line) continue;
 
-        // Identify high school (10th standard, SSC, Matriculation) vs Degree/College
+        // Identify qualification levels
         const isHighSchool = /\b(10th|class\s*10\b|class\s*x\b|secondary\s*school|matric|ssc\b|high\s*school|xth)\b/i.test(line);
+        const isSeniorSecondary = /\b(12th|class\s*12\b|class\s*xii\b|higher\s*secondary|senior\s*secondary|puc|inter|intermediate|hsc|\+2|pcmc|pcm|pcb|commerce|arts)\b/i.test(line);
         const isDegree = /\b(bachelor|b\.?tech|b\.?e\b|b\.?sc|bca\b|bba\b|degree|undergrad|ug\b|graduation|college|university|overall|aggregate|cumulative|final)\b/i.test(line);
 
-        // Explicit CGPA patterns (NEVER include generic "score" which confuses test scores or 10th scores)
-        const regex1 = /(\d+(?:\.\d+)?)\s*(?:\/\s*(\d+(?:\.\d+)?)\s*)?(?:cgpa|cgps|cgp|gpa|pointer)\b/gi;
-        const regex2 = /(?:cgpa|cgps|cgp|gpa|pointer)[a-z \t]{0,15}(?:of|is|in|was)?[ \t:=~-]+(\d+(?:\.\d+)?)(?:[ \t]*\/[ \t]*(\d+(?:\.\d+)?))?/gi;
+        // Pattern A: Percentage representations
+        // Handles: "85 percentage", "85 percent", "85%", "85 %", "85.4 pct", "percentage: 85", "percentage of 85", "percentage 85", "85/100"
+        const pctRegex1 = /(\d+(?:\.\d+)?)\s*(?:%|\bpercent(?:age)?s?\b|\bpct\b|\bprcnt\b)/gi;
+        const pctRegex2 = /(?:percentage|percent|pct|marks?|aggregate|score|grade)[a-z \t]{0,15}(?:of|is|in|was|:|-|=|\s)+(\d+(?:\.\d+)?)(?:\s*(?:%|\bpercent(?:age)?s?\b|\bpct\b))?/gi;
+        const ratio100Regex = /(\d+(?:\.\d+)?)\s*\/\s*100(?:\.0)?\b/gi;
 
-        let m;
-        while ((m = regex1.exec(line)) !== null) {
-          allCandidates.push({
-            val: parseFloat(m[1]),
-            scale: m[2] ? parseFloat(m[2]) : null,
-            isDegree,
-            isHighSchool,
-            isCounselor: src.isCounselor
-          });
+        let m: RegExpExecArray | null;
+        while ((m = pctRegex1.exec(line)) !== null) {
+          const val = parseFloat(m[1]);
+          if (val > 0 && val <= 100) {
+            allCandidates.push({
+              val,
+              scale: 100,
+              type: 'percentage',
+              isDegree,
+              isSeniorSecondary,
+              isHighSchool,
+              isCounselor: src.isCounselor,
+              line,
+              rawString: m[0]
+            });
+          }
         }
-        while ((m = regex2.exec(line)) !== null) {
-          allCandidates.push({
-            val: parseFloat(m[1]),
-            scale: m[2] ? parseFloat(m[2]) : null,
-            isDegree,
-            isHighSchool,
-            isCounselor: src.isCounselor
-          });
+        while ((m = pctRegex2.exec(line)) !== null) {
+          const val = parseFloat(m[1]);
+          if (val > 0 && val <= 100) {
+            allCandidates.push({
+              val,
+              scale: 100,
+              type: 'percentage',
+              isDegree,
+              isSeniorSecondary,
+              isHighSchool,
+              isCounselor: src.isCounselor,
+              line,
+              rawString: m[0]
+            });
+          }
+        }
+        while ((m = ratio100Regex.exec(line)) !== null) {
+          const val = parseFloat(m[1]);
+          if (val > 0 && val <= 100) {
+            allCandidates.push({
+              val,
+              scale: 100,
+              type: 'percentage',
+              isDegree,
+              isSeniorSecondary,
+              isHighSchool,
+              isCounselor: src.isCounselor,
+              line,
+              rawString: m[0]
+            });
+          }
+        }
+
+        // Pattern B: CGPA / GPA / Pointer patterns
+        // Handles: "8.5 cgpa", "cgpa: 8.5", "8.5/10", "3.8/4 gpa", "8.5 pointer", "pointer 8.5"
+        const cgpaRegex1 = /(\d+(?:\.\d+)?)\s*(?:\/\s*(\d+(?:\.\d+)?)\s*)?(?:cgpa|cgps|cgp|gpa|pointer)\b/gi;
+        const cgpaRegex2 = /(?:cgpa|cgps|cgp|gpa|pointer)[a-z \t]{0,15}(?:of|is|in|was|:|-|=|\s)+(\d+(?:\.\d+)?)(?:[ \t]*\/[ \t]*(\d+(?:\.\d+)?))?/gi;
+        const ratioScaleRegex = /(\d+(?:\.\d+)?)\s*\/\s*(10(?:\.0)?|4(?:\.0)?)\b/gi;
+
+        while ((m = cgpaRegex1.exec(line)) !== null) {
+          const val = parseFloat(m[1]);
+          const scale = m[2] ? parseFloat(m[2]) : (m[0].includes("/4") ? 4 : (val <= 4.0 && m[0].includes("gpa") ? 4 : 10));
+          if (val > 0 && val <= (scale || 10)) {
+            allCandidates.push({
+              val,
+              scale,
+              type: scale === 4 ? 'gpa_4' : 'cgpa',
+              isDegree,
+              isSeniorSecondary,
+              isHighSchool,
+              isCounselor: src.isCounselor,
+              line,
+              rawString: m[0]
+            });
+          }
+        }
+        while ((m = cgpaRegex2.exec(line)) !== null) {
+          const val = parseFloat(m[1]);
+          const scale = m[2] ? parseFloat(m[2]) : (m[0].includes("/4") ? 4 : (val <= 4.0 && m[0].includes("gpa") ? 4 : 10));
+          if (val > 0 && val <= (scale || 10)) {
+            allCandidates.push({
+              val,
+              scale,
+              type: scale === 4 ? 'gpa_4' : 'cgpa',
+              isDegree,
+              isSeniorSecondary,
+              isHighSchool,
+              isCounselor: src.isCounselor,
+              line,
+              rawString: m[0]
+            });
+          }
+        }
+        while ((m = ratioScaleRegex.exec(line)) !== null) {
+          const val = parseFloat(m[1]);
+          const scale = parseFloat(m[2]);
+          if (val > 0 && val <= scale) {
+            allCandidates.push({
+              val,
+              scale,
+              type: scale === 4 ? 'gpa_4' : 'cgpa',
+              isDegree,
+              isSeniorSecondary,
+              isHighSchool,
+              isCounselor: src.isCounselor,
+              line,
+              rawString: m[0]
+            });
+          }
         }
       }
     }
 
-    function normalizeCgpaVal(c: CgpaCandidate): number {
+    function normalizeCandidateToCgpa(c: AcademicCandidate): { cgpa: number; display: string } {
       let v = c.val;
-      if (c.scale === 4 || c.scale === 4.0 || (v > 0 && v <= 4.0 && !c.scale)) {
-        v = (v / 4) * 10;
-      } else if (v > 10 && v <= 100) {
-        v = v / 10;
+      let display = "";
+      if (c.type === 'percentage' || c.scale === 100 || (v > 10 && v <= 100)) {
+        // Percentage (0-100) -> 10-point scale: 85% = 8.5
+        const cgpa = Math.min(10, Math.max(0, parseFloat((v / 10).toFixed(2))));
+        display = `${v}%`;
+        return { cgpa, display };
+      } else if (c.scale === 4 || c.type === 'gpa_4' || (v > 0 && v <= 4.0 && (c.scale === 4 || c.line.includes('/4')))) {
+        // 4.0 scale GPA -> 10.0 scale: 3.6/4 = 9.0
+        const cgpa = Math.min(10, Math.max(0, parseFloat(((v / 4) * 10).toFixed(2))));
+        display = `${v} / 4.0 GPA`;
+        return { cgpa, display };
+      } else {
+        // Standard 10.0 scale: 8.5 = 8.5
+        const cgpa = Math.min(10, Math.max(0, parseFloat(v.toFixed(2))));
+        display = `${cgpa} / 10 CGPA`;
+        return { cgpa, display };
       }
-      return Math.min(10, Math.max(0, parseFloat(v.toFixed(2))));
     }
 
     if (allCandidates.length > 0) {
+      const isUndergrad = (degreeObjective || "").toLowerCase().includes("undergrad") || (degreeObjective || "").toLowerCase().includes("bachelor");
+      
       // 1. Priority: Counselor manual input box
-      const counselorCandidate = allCandidates.find(c => c.isCounselor);
-      if (counselorCandidate) {
-        extractedCgpa = normalizeCgpaVal(counselorCandidate);
+      let best = allCandidates.find(c => c.isCounselor);
+
+      // 2. Priority: If applying for undergraduate, prefer Senior Secondary (12th / PUC / +2)
+      if (!best && isUndergrad) {
+        best = allCandidates.find(c => c.isSeniorSecondary && !c.isHighSchool);
+      }
+
+      // 3. Priority: If applying for postgraduate/master, prefer Degree candidate
+      if (!best && !isUndergrad) {
+        best = allCandidates.find(c => c.isDegree && !c.isHighSchool);
+      }
+
+      // 4. Priority: Any non-highschool candidate
+      if (!best) {
+        best = allCandidates.find(c => c.isDegree && !c.isHighSchool) ||
+               allCandidates.find(c => c.isSeniorSecondary && !c.isHighSchool) ||
+               allCandidates.find(c => !c.isHighSchool) ||
+               allCandidates[allCandidates.length - 1];
+      }
+
+      if (best) {
+        const norm = normalizeCandidateToCgpa(best);
+        extractedCgpa = norm.cgpa;
+        extractedOriginalGrade = norm.display;
         cgpaDetected = true;
-      } else {
-        // 2. Priority: Degree/Bachelor/College candidate (excluding high school)
-        const degreeCandidate = allCandidates.find(c => c.isDegree && !c.isHighSchool);
-        if (degreeCandidate) {
-          extractedCgpa = normalizeCgpaVal(degreeCandidate);
+      }
+    }
+
+    if (!cgpaDetected) {
+      // Fallback: Written words percentage (e.g. "eighty five percent")
+      const percentWordMatch = lowerText.match(/(seventy|eighty|ninety)[ \-]*(one|two|three|four|five|six|seven|eight|nine)?[\s]*(?:%|percent(?:age)?)/i);
+      if (percentWordMatch) {
+        const tensMap: Record<string, number> = { "seventy": 70, "eighty": 80, "ninety": 90 };
+        const onesMap: Record<string, number> = { "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9 };
+        const t = tensMap[percentWordMatch[1].toLowerCase()] || 0;
+        const o = percentWordMatch[2] ? (onesMap[percentWordMatch[2].toLowerCase()] || 0) : 0;
+        const total = t + o;
+        if (total > 0 && total <= 100) {
+          extractedCgpa = parseFloat((total / 10).toFixed(2));
+          extractedOriginalGrade = `${total}%`;
           cgpaDetected = true;
-        } else {
-          // 3. Priority: Non-highschool candidate with a decimal CGPA (e.g. 5.98, 7.85)
-          const decimalCandidate = allCandidates.find(c => !c.isHighSchool && String(c.val).includes("."));
-          if (decimalCandidate) {
-            extractedCgpa = normalizeCgpaVal(decimalCandidate);
-            cgpaDetected = true;
-          } else {
-            // 4. Priority: Any candidate not marked as high school
-            const nonHighSchool = allCandidates.find(c => !c.isHighSchool);
-            if (nonHighSchool) {
-              extractedCgpa = normalizeCgpaVal(nonHighSchool);
-              cgpaDetected = true;
-            } else {
-              extractedCgpa = normalizeCgpaVal(allCandidates[allCandidates.length - 1]);
-              cgpaDetected = true;
-            }
-          }
         }
       }
     }
 
     if (!cgpaDetected) {
-      const percentMatch = lowerText.match(/(\d+(?:\.\d+)?)\s*(?:%|\bpercent\b)/i) || lowerText.match(/percentage(?:\s+of|\s+is)?[ \t:=]*(\d+(?:\.\d+)?)/i);
-      
-      // Written percentage (e.g. "eighty five percent")
-      let percentWordValue = 0;
-      const percentWordMatch = lowerText.match(/(seventy|eighty|ninety)[ \-]*(one|two|three|four|five|six|seven|eight|nine)?[\s]*(?:%|percent)/i);
-      if (percentWordMatch) {
-         const tensMap: Record<string, number> = {"seventy": 70, "eighty": 80, "ninety": 90};
-         const onesMap: Record<string, number> = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9};
-         const t = tensMap[percentWordMatch[1].toLowerCase()] || 0;
-         const o = percentWordMatch[2] ? (onesMap[percentWordMatch[2].toLowerCase()] || 0) : 0;
-         percentWordValue = t + o;
-      }
-
-      if (percentMatch && percentMatch[1]) {
-        const parsed = parseFloat(percentMatch[1]);
-        if (parsed > 10 && parsed <= 100) {
-          extractedCgpa = parseFloat((parsed / 10).toFixed(2));
-          cgpaDetected = true;
-        } else if (parsed > 0 && parsed <= 10) {
-          extractedCgpa = parseFloat(parsed.toFixed(2));
-          cgpaDetected = true;
-        }
-      } else if (percentWordValue > 0) {
-        extractedCgpa = parseFloat((percentWordValue / 10).toFixed(2));
+      // Fallback: Isolated decimal or slang
+      const isolatedDecimalMatch = lowerText.match(/(?:\s|^)([5-9]\.\d{1,2}|10\.0)(?:\s|$)/);
+      if (isolatedDecimalMatch && isolatedDecimalMatch[1]) {
+        extractedCgpa = parseFloat(parseFloat(isolatedDecimalMatch[1]).toFixed(2));
+        extractedOriginalGrade = `${extractedCgpa} / 10 CGPA`;
         cgpaDetected = true;
-      } else {
-        // 2.5 FALLBACK: SLANG DICTIONARY & MATH NUMBER SNIFFER
-        const slangMatch = lowerText.match(/(?:pointer|grade|got an?|scored an?)[ \t:=]*([\d\.]+)(?:[ \t]*\/[ \t]*([\d\.]+))?/i);
-        const isolatedDecimalMatch = lowerText.match(/(?:\s|^)([5-9]\.\d{1,2}|10\.0)(?:\s|$)/);
-
-        if (slangMatch && slangMatch[1]) {
-          const parsed = parseFloat(slangMatch[1]);
-          if (parsed > 0 && parsed <= 4.0) {
-            extractedCgpa = parseFloat(((parsed / 4) * 10).toFixed(2));
-            cgpaDetected = true;
-          } else if (parsed > 4.0 && parsed <= 10.0) {
-            extractedCgpa = parseFloat(parsed.toFixed(2));
-            cgpaDetected = true;
-          }
-        } else if (isolatedDecimalMatch && isolatedDecimalMatch[1]) {
-          extractedCgpa = parseFloat(parseFloat(isolatedDecimalMatch[1]).toFixed(2));
-          cgpaDetected = true;
-        }
       }
     }
+
     extractedCgpa = parseFloat(extractedCgpa.toFixed(2));
+    if (!extractedOriginalGrade) {
+      extractedOriginalGrade = `${extractedCgpa} / 10`;
+    }
 
     // 3. EXTRACT BUDGET & CURRENCY CONVERSION (Supporting USD, INR, Lakhs)
     let extractedBudget = 50000; // Default budget USD
@@ -926,6 +1017,7 @@ class LocalHeuristicBrain {
       studentDetails: {
         name: extractedName,
         cgpa: extractedCgpa,
+        originalGrade: extractedOriginalGrade || `${extractedCgpa} / 10`,
         degreeObjective: degreeObjective,
         primaryDomain: primaryDomain.charAt(0).toUpperCase() + primaryDomain.slice(1),
         exactCourse: exactCourse,
@@ -1611,7 +1703,7 @@ Student: ${extractedName} | Goal: ${degreeObjective} in ${degreeDisplay} | CGPA:
         // Tier 3: Instant, deterministic 3-part structured report (100% reliable, zero latency)
         const profileStrength = extractedCgpa >= 8.5 ? "exceptional" : extractedCgpa >= 7.5 ? "strong" : extractedCgpa >= 6.0 ? "competitive" : "foundational";
         const countryLabel = (destinationCountry && destinationCountry !== "Not Decided" && destinationCountry !== "Other") ? destinationCountry : "preferred global destinations";
-        finalSummary = `**Academic Background**\n${extractedName} demonstrates a ${profileStrength} academic profile with a CGPA of ${extractedCgpa}/10, pursuing a ${degreeObjective} degree in ${exactCourse !== 'General' ? exactCourse : primaryDomain.replace(/_/g, ' ')}.\n\n**Financial & Location Preferences**\nTargeting higher education in ${countryLabel} with an estimated budget of ${targetSymbol}${extractedBudget.toLocaleString('en-US', {maximumFractionDigits: 0})}.\n\n**Counselor Notes**\n${context ? context.slice(0, 250).trim() : "Profile evaluated against university entry criteria, test score benchmarks, and financial parameters."}`;
+        finalSummary = `**Academic Background**\n${extractedName} demonstrates a ${profileStrength} academic profile with a CGPA of ${extractedCgpa}/10${extractedOriginalGrade && extractedOriginalGrade !== `${extractedCgpa} / 10` ? ` (${extractedOriginalGrade})` : ''}, pursuing a ${degreeObjective} degree in ${exactCourse !== 'General' ? exactCourse : primaryDomain.replace(/_/g, ' ')}.\n\n**Financial & Location Preferences**\nTargeting higher education in ${countryLabel} with an estimated budget of ${targetSymbol}${extractedBudget.toLocaleString('en-US', {maximumFractionDigits: 0})}.\n\n**Counselor Notes**\n${context ? context.slice(0, 250).trim() : "Profile evaluated against university entry criteria, test score benchmarks, and financial parameters."}`;
         result.isAiGenerated = false;
         result.aiError = e?.message || "Execution timeout";
     }

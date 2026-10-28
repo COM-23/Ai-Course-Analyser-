@@ -351,7 +351,7 @@ export const ReportPDFView = React.forwardRef<HTMLDivElement, ReportPDFViewProps
             }}
           >
             {[
-              { label: "CGPA / Grade", value: s.cgpa ? `${s.cgpa} / 10` : "N/A", highlight: true },
+              { label: "CGPA / Grade", value: s.cgpa ? `${s.cgpa} / 10${s.originalGrade && s.originalGrade !== `${s.cgpa}` ? ` (${s.originalGrade})` : ''}` : "N/A", highlight: true },
               { label: "Degree Goal", value: s.degreeObjective || "Master's" },
               { label: "Target Country", value: s.destinationCountry || "General" },
               { label: "Target Intake", value: s.targetIntake || "Next Intake" },
