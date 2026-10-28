@@ -1372,10 +1372,6 @@ Student: ${extractedName} | Goal: ${degreeObjective} in ${degreeDisplay} | CGPA:
                 }
             } catch (e) {}
 
-            if (customAiEndpoint && customAiEndpoint.includes('developers.cloudflare.com')) {
-                throw new Error("Invalid AI endpoint: 'developers.cloudflare.com' is Cloudflare's documentation link. In your Linux terminal, copy the assigned tunnel link shown directly below that banner: https://<subdomain>.trycloudflare.com");
-            }
-
             let envEndpoint = (process.env.LOCAL_AI_ENDPOINT || '').trim();
             if (envEndpoint.includes('entrepreneurs-psp-navigate-maternity') || envEndpoint.includes('your-tunnel-subdomain') || envEndpoint.includes('millions-librarian-consumer-desktops') || envEndpoint.includes('developers.cloudflare.com')) {
                 envEndpoint = '';
@@ -1411,7 +1407,7 @@ Student: ${extractedName} | Goal: ${degreeObjective} in ${degreeDisplay} | CGPA:
             const candidateEndpoints = rawCandidates.filter((v, i, a) => a.indexOf(v) === i);
 
             if (candidateEndpoints.length === 0) {
-                throw new Error("No active AI endpoint configured. Please enter your Cloudflare tunnel or server URL in Settings.");
+                throw new Error("On-premise AI offline or unconfigured");
             }
 
             const aiModel = (requestedModel || process.env.LOCAL_AI_MODEL || 'llama3.1:latest').trim();

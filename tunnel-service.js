@@ -111,6 +111,38 @@ function saveTunnelState(url) {
   } catch (e) {
     console.warn('[Supervisor] Could not update .env.local:', e.message);
   }
+
+  // 4. Automatically broadcast live endpoint to Netlify cloud deployment
+  const netlifyAppUrl = (process.env.NETLIFY_APP_URL || 'https://aicouresanalyser.netlify.app').replace(/\/+$/, '');
+  try {
+    const postPayload = JSON.stringify({ aiEndpoint: endpoint });
+    const netlifyUrlObj = new URL(`${netlifyAppUrl}/api/settings`);
+    const options = {
+      hostname: netlifyUrlObj.hostname,
+      port: 443,
+      path: netlifyUrlObj.pathname,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(postPayload)
+      },
+      timeout: 10000
+    };
+    const syncReq = https.request(options, (res) => {
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        console.log(`[Supervisor] Automatically synced active endpoint to Netlify: ${endpoint}`);
+      } else {
+        console.warn(`[Supervisor] Netlify sync returned status: ${res.statusCode}`);
+      }
+    });
+    syncReq.on('error', (err) => {
+      console.warn(`[Supervisor] Netlify auto-sync network notice: ${err.message}`);
+    });
+    syncReq.write(postPayload);
+    syncReq.end();
+  } catch (err) {
+    console.warn('[Supervisor] Netlify auto-sync error:', err.message);
+  }
 }
 
 // 4. Start Cloudflare Tunnel

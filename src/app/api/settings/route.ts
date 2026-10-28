@@ -68,9 +68,7 @@ export async function POST(req: Request) {
     const data = await req.json();
 
     if (data.aiEndpoint && typeof data.aiEndpoint === 'string' && data.aiEndpoint.includes('developers.cloudflare.com')) {
-      return NextResponse.json({ 
-        error: "Invalid endpoint: 'developers.cloudflare.com' is Cloudflare's documentation link from the banner. In your Linux terminal, copy the assigned tunnel link shown directly below that banner: https://<subdomain>.trycloudflare.com" 
-      }, { status: 400 });
+      delete data.aiEndpoint;
     }
     
     try {

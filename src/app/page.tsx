@@ -917,10 +917,6 @@ ${chatUser}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`;
   const saveSettings = async (payload: any) => {
     try {
       if (payload.aiEndpoint !== undefined) {
-        if (payload.aiEndpoint && payload.aiEndpoint.includes('developers.cloudflare.com')) {
-          alert("Notice: 'developers.cloudflare.com' is Cloudflare's documentation link from the banner.\n\nIn your Linux terminal, copy the assigned tunnel URL shown in the box directly below that banner: https://<subdomain>.trycloudflare.com");
-          return;
-        }
         payload.aiEndpoint = cleanAndNormalizeAiUrl(payload.aiEndpoint);
         try { localStorage.setItem('learn_overseas_custom_ai_endpoint', payload.aiEndpoint); } catch (e) {}
       }
@@ -938,16 +934,13 @@ ${chatUser}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`;
       });
       const data = await res.json();
       if (!res.ok || data.error) {
-        alert(data.error || 'Failed to save settings');
-        return;
+        console.warn("Settings save notice:", data.error);
       }
       if (payload.aiEndpoint) {
         checkAiHealth(payload.aiEndpoint);
       }
-      alert('Settings saved successfully!');
     } catch (err: any) {
       console.error(err);
-      alert(err?.message || 'Settings saved successfully!');
     }
   };
 
@@ -3097,10 +3090,6 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
                               <button
                                 type="button"
                                 onClick={() => {
-                                  if (customAiEndpoint && customAiEndpoint.includes('developers.cloudflare.com')) {
-                                    alert("Notice: 'developers.cloudflare.com' is Cloudflare's documentation link from the banner.\n\nIn your Linux terminal, copy the assigned tunnel URL shown in the box directly below that banner: https://<subdomain>.trycloudflare.com");
-                                    return;
-                                  }
                                   const normalized = cleanAndNormalizeAiUrl(customAiEndpoint);
                                   if (normalized) {
                                     setCustomAiEndpoint(normalized);
