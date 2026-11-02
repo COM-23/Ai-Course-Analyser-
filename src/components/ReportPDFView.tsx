@@ -339,6 +339,30 @@ export const ReportPDFView = React.forwardRef<HTMLDivElement, ReportPDFViewProps
                 <GraduationCap size={15} />
                 {s.primaryDomain || "Higher Education"} Applicant • Target: {s.destinationCountry || "Global"}
               </p>
+              {((s.email && s.email !== "Not Provided") || (s.phone && s.phone !== "Not Provided")) && (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "14px",
+                    marginTop: "6px",
+                    fontSize: "12px",
+                    fontWeight: 600,
+                    color: c.textSecondary,
+                  }}
+                >
+                  {s.email && s.email !== "Not Provided" && (
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: "5px" }}>
+                      <span style={{ color: c.brandOrange, fontWeight: 800 }}>Email:</span> {s.email}
+                    </span>
+                  )}
+                  {s.phone && s.phone !== "Not Provided" && (
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: "5px" }}>
+                      <span style={{ color: "#10B981", fontWeight: 800 }}>Phone:</span> {s.phone}
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 

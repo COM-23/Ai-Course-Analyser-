@@ -287,7 +287,7 @@ class LocalHeuristicBrain {
       });
   }
 
-  async analyze(text: string, context: string, manualCountry: string, manualIntake: string, aiStrictness: string = "standard", realtimeFetching: boolean = false, customAiEndpoint: string = "", isComparison: boolean = false, requestedModel: string = "", clientProvidedApiKey: string = "") {
+  async analyze(text: string, context: string, manualCountry: string, manualIntake: string, aiStrictness: string = "standard", realtimeFetching: boolean = false, customAiEndpoint: string = "", isComparison: boolean = false, requestedModel: string = "", clientProvidedApiKey: string = "", manualEmail: string = "", manualPhone: string = "") {
     // Strictly identify real cloud serverless environments (Netlify / Vercel / AWS Lambda)
     const isCloudEnv = !!(
       process.env.NETLIFY ||
@@ -311,6 +311,8 @@ class LocalHeuristicBrain {
       return {
         studentDetails: {
           name: "SECURITY_BREACH_DETECTED",
+          email: "blocked@system.alert",
+          phone: "0000000000",
           cgpa: 0.0,
           degreeObjective: "N/A",
           primaryDomain: "N/A",
@@ -417,6 +419,94 @@ class LocalHeuristicBrain {
            }
        }
     }
+
+    // 1.1 EXTRACT EMAIL
+    let extractedEmail = "";
+    const normalizedRawData = rawData
+      .replace(/([a-zA-Z0-9._%+-]+)\s*@\s*([a-zA-Z0-9.-]+)\s*\.\s*([a-zA-Z]{2,})/g, '$1@$2.$3')
+      .replace(/mailto:\s*/gi, '');
+
+    if (manualEmail && manualEmail.trim()) {
+      extractedEmail = manualEmail.trim().toLowerCase();
+    } else {
+      // Check explicit email markers first
+      const labeledEmailMatch = normalizedRawData.match(/(?:email|e-mail|mail|contact\s*email)\s*[:=\-]?\s*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i);
+      if (labeledEmailMatch && labeledEmailMatch[1]) {
+        extractedEmail = labeledEmailMatch[1].trim().toLowerCase();
+      } else {
+        // General RFC-like email match across full text
+        const allEmails = normalizedRawData.match(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g);
+        if (allEmails && allEmails.length > 0) {
+          const personalEmail = allEmails.find(e => {
+            const lower = e.toLowerCase();
+            return !lower.includes("support@") && !lower.includes("admissions@") && !lower.includes("info@") && 
+                   !lower.includes("noreply@") && !lower.includes("help@") && !lower.includes("contact@") &&
+                   !lower.includes("office@") && !lower.includes("admin@") && !lower.includes("careers@") && !lower.includes("jobs@");
+          });
+          extractedEmail = (personalEmail || allEmails[0]).trim().toLowerCase();
+        }
+      }
+    }
+    if (extractedEmail) {
+      extractedEmail = extractedEmail.replace(/[.,;:]+$/, '');
+    }
+
+    // 1.2 EXTRACT PHONE NUMBER
+    let extractedPhone = "";
+    if (manualPhone && manualPhone.trim()) {
+      extractedPhone = manualPhone.trim();
+    } else {
+      // Check explicit labeled phone/mobile markers first
+      const labeledPhoneMatch = normalizedRawData.match(/(?:phone(?:\s*no|\s*number)?|mobile(?:\s*no|\s*number)?|contact(?:\s*no|\s*number)?|tel(?:\s*no|\s*number|\.)?|cell(?:\s*no)?|whatsapp(?:\s*no)?|mob(?:\.|\b)|ph(?:\.|\b)|call(?:\.|\b))\s*[:=\-#\.]*\s*(\+?[0-9][0-9\s\-\.\(\)/]{7,22}[0-9])/i);
+      if (labeledPhoneMatch && labeledPhoneMatch[1]) {
+        const cand = labeledPhoneMatch[1].trim();
+        const digits = cand.replace(/\D/g, '');
+        if (digits.length >= 8 && digits.length <= 15) {
+          extractedPhone = cand.replace(/\s+/g, ' ').trim();
+        }
+      }
+
+      // Check for standalone Indian mobile numbers (e.g. +91 9876543210, 9876543210)
+      if (!extractedPhone) {
+        const indianMobileMatch = normalizedRawData.match(/(?:(?:\+|00)91[\s.-]?)?[6-9]\d{4}[\s.-]?\d{5}\b/);
+        if (indianMobileMatch) {
+          extractedPhone = indianMobileMatch[0].replace(/\s+/g, ' ').trim();
+        }
+      }
+
+      // If no labeled phone found, scan for candidate international format or 10-15 digit mobile number
+      if (!extractedPhone) {
+        const phoneCandidates = normalizedRawData.match(/(?:\+?\d{1,3}[-.\s]?)?(?:\(?\d{2,5}\)?[-.\s]?)?\d{3,5}[-.\s]?\d{3,5}\b/g);
+        if (phoneCandidates) {
+          for (const cand of phoneCandidates) {
+            const cleanCand = cand.trim();
+            const digits = cleanCand.replace(/\D/g, '');
+            const isDateRange = /^(?:19|20)\d{2}[-–/](?:19|20)?\d{2}$/.test(cleanCand);
+            const isPinCode = /^\d{6}$/.test(digits);
+            const hasCurrency = cand.includes('$') || cand.includes('₹') || cand.includes('£') || cand.includes('€');
+            if (digits.length >= 10 && digits.length <= 15 && !isDateRange && !isPinCode && !hasCurrency && !cleanCand.includes('/')) {
+              extractedPhone = cleanCand.replace(/\s+/g, ' ');
+              break;
+            }
+          }
+        }
+      }
+    }
+    if (extractedPhone) {
+      extractedPhone = extractedPhone.replace(/[.,;:]+$/, '');
+    }
+
+    // Fallback: If name was not found but email prefix has recognizable firstname.lastname, infer name
+    if (extractedName === "Unknown Student" && extractedEmail) {
+      const emailPrefix = extractedEmail.split('@')[0];
+      const cleanParts = emailPrefix.split(/[._-]/).filter(p => p.length >= 2 && !/\d/.test(p));
+      if (cleanParts.length >= 1 && cleanParts.length <= 3) {
+        extractedName = cleanParts.map(p => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase()).join(' ');
+      }
+    }
+
+    if (!extractedEmail) extractedEmail = "Not Provided";
+    if (!extractedPhone) extractedPhone = "Not Provided";
 
     let degreeObjective = "Post Graduate / Masters";
 
@@ -1016,6 +1106,8 @@ class LocalHeuristicBrain {
     const result = {
       studentDetails: {
         name: extractedName,
+        email: extractedEmail,
+        phone: extractedPhone,
         cgpa: extractedCgpa,
         originalGrade: extractedOriginalGrade || `${extractedCgpa} / 10`,
         degreeObjective: degreeObjective,
@@ -1369,13 +1461,14 @@ class LocalHeuristicBrain {
         const cleanNotes = (context && context.trim().length > 3 && !isPureNumber) ? context.slice(0, 100).trim() : 'Standard profile assessment';
 
         // Llama 3 native chat format - super-fast prompt ingestion (<3s on CPU)
+        const contactInfo = (extractedEmail && extractedEmail !== "Not Provided" ? extractedEmail : "") + (extractedPhone && extractedPhone !== "Not Provided" ? ` / ${extractedPhone}` : "");
         const prompt = `<|start_header_id|>system<|end_header_id|>
 You are an expert admission counselor AI. Write a concise 3-part report with EXACTLY these bold headings:
 **Academic Background**
 **Financial & Location Preferences**
 **Counselor Notes**
 Be concise and factual.<|eot_id|><|start_header_id|>user<|end_header_id|>
-Student: ${extractedName} | Goal: ${degreeObjective} in ${degreeDisplay} | CGPA: ${extractedCgpa}/10 | Budget: ${targetSymbol}${convertedBudget.toLocaleString('en-US', {maximumFractionDigits: 0})} | Destination: ${countryDisplay} | Notes: ${cleanNotes}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`;
+Student: ${extractedName}${contactInfo ? ` | Contact: ${contactInfo}` : ''} | Goal: ${degreeObjective} in ${degreeDisplay} | CGPA: ${extractedCgpa}/10 | Budget: ${targetSymbol}${convertedBudget.toLocaleString('en-US', {maximumFractionDigits: 0})} | Destination: ${countryDisplay} | Notes: ${cleanNotes}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`;
         
         // Tier 1: Fast Cloud LLM (Groq) if configured - returns in ~400ms
         if (!finalSummary && process.env.GROQ_API_KEY) {
@@ -1390,7 +1483,7 @@ Student: ${extractedName} | Goal: ${degreeObjective} in ${degreeDisplay} | CGPA:
                         model: 'llama-3.1-8b-instant',
                         messages: [
                             { role: 'system', content: 'You are an expert admission counselor AI. Format a professional structured profile report with exact subheadings: **Academic Background**, **Financial & Location Preferences**, and **Counselor Notes**.' },
-                            { role: 'user', content: `Student: ${extractedName} | Goal: ${degreeObjective} in ${degreeDisplay} | CGPA: ${extractedCgpa}/10 | Budget: ${targetSymbol}${convertedBudget} | Destination: ${countryDisplay}` }
+                            { role: 'user', content: `Student: ${extractedName}${contactInfo ? ` | Contact: ${contactInfo}` : ''} | Goal: ${degreeObjective} in ${degreeDisplay} | CGPA: ${extractedCgpa}/10 | Budget: ${targetSymbol}${convertedBudget} | Destination: ${countryDisplay}` }
                         ],
                         max_tokens: 150,
                         temperature: 0.2
@@ -1735,6 +1828,8 @@ export async function POST(req: NextRequest) {
     additionalContext = body.additionalContext || body.context || "";
     destinationCountry = body.destinationCountry || body.manualCountry || "Not Decided";
     targetIntake = body.targetIntake || body.manualIntake || "Not Decided";
+    const manualEmail = (body.email || body.studentEmail || "").trim();
+    const manualPhone = (body.phone || body.studentPhone || "").trim();
 
     // Extract authenticated user for role-based counselor assignment
     let authUser: any = null;
@@ -1821,7 +1916,14 @@ export async function POST(req: NextRequest) {
 
     // 2. USE THE CUSTOM INDEPENDENT BRAIN
     const brain = new LocalHeuristicBrain();
-    const analysis = await brain.analyze(extractedText, additionalContext || "", destinationCountry, targetIntake, aiStrictness, realtimeFetching, customAiEndpoint, isComparison, requestedModel, clientProvidedApiKey);
+    const analysis = await brain.analyze(extractedText, additionalContext || "", destinationCountry, targetIntake, aiStrictness, realtimeFetching, customAiEndpoint, isComparison, requestedModel, clientProvidedApiKey, manualEmail, manualPhone);
+
+    if (manualEmail) {
+      analysis.studentDetails.email = manualEmail;
+    }
+    if (manualPhone) {
+      analysis.studentDetails.phone = manualPhone;
+    }
 
     try {
       getDb().exec(`
@@ -1843,7 +1945,27 @@ export async function POST(req: NextRequest) {
       `);
 
       if (!primaryStudentId) {
-        const existingStudent = getDb().prepare(`SELECT id FROM students WHERE json_extract(studentDetails, '$.name') = ? COLLATE NOCASE AND counselor_id = ?`).get(analysis.studentDetails.name, counselorId) as any;
+        let existingStudent: any = null;
+        if (analysis.studentDetails.email && analysis.studentDetails.email !== "Not Provided") {
+          try {
+            existingStudent = getDb().prepare(`SELECT id FROM students WHERE json_extract(studentDetails, '$.email') = ? COLLATE NOCASE AND counselor_id = ?`).get(analysis.studentDetails.email, counselorId) as any;
+          } catch (e) {}
+          if (!existingStudent) {
+            try {
+              existingStudent = getDb().prepare(`SELECT id FROM students WHERE json_extract(studentDetails, '$.email') = ? COLLATE NOCASE`).get(analysis.studentDetails.email) as any;
+            } catch (e) {}
+          }
+        }
+        if (!existingStudent && analysis.studentDetails.name && analysis.studentDetails.name !== "Unknown Student") {
+          try {
+            existingStudent = getDb().prepare(`SELECT id FROM students WHERE json_extract(studentDetails, '$.name') = ? COLLATE NOCASE AND counselor_id = ?`).get(analysis.studentDetails.name, counselorId) as any;
+          } catch (e) {}
+          if (!existingStudent) {
+            try {
+              existingStudent = getDb().prepare(`SELECT id FROM students WHERE json_extract(studentDetails, '$.name') = ? COLLATE NOCASE`).get(analysis.studentDetails.name) as any;
+            } catch (e) {}
+          }
+        }
         
         if (existingStudent) {
            const stmt = getDb().prepare(`

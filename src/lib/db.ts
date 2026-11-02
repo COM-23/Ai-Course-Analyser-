@@ -452,15 +452,17 @@ function createPureJsDatabase(storagePath: string): DatabaseAdapter {
           if (upper.includes("WHERE ID = 'AISTRICTNESS'")) {
             return memoryData.settings.find((x: any) => x.id === 'aiStrictness');
           }
-          if (upper.includes('FROM STUDENTS') && (upper.includes('JSON_EXTRACT') || upper.includes('NAME'))) {
-            const nameToFind = String(params[0] || '').toLowerCase().trim();
+          if (upper.includes('FROM STUDENTS') && (upper.includes('JSON_EXTRACT') || upper.includes('NAME') || upper.includes('EMAIL'))) {
+            const valToFind = String(params[0] || '').toLowerCase().trim();
             const counselorId = params[1] ? Number(params[1]) : 1;
+            const isEmailQuery = upper.includes('EMAIL');
             return memoryData.students.find((s: any) => {
               try {
                 const details = typeof s.studentDetails === 'string' ? JSON.parse(s.studentDetails) : s.studentDetails;
-                const matchName = String(details?.name || '').toLowerCase().trim() === nameToFind;
+                const fieldVal = isEmailQuery ? String(details?.email || '').toLowerCase().trim() : String(details?.name || '').toLowerCase().trim();
+                const matchVal = fieldVal === valToFind;
                 const matchCid = Number(s.counselor_id) === counselorId;
-                return matchName && matchCid;
+                return matchVal && matchCid;
               } catch {
                 return false;
               }
@@ -661,19 +663,51 @@ function createPureJsDatabase(storagePath: string): DatabaseAdapter {
             }
             return { changes: 0, lastInsertRowid: 0 };
           }
-          if (upper.startsWith('UPDATE STUDENTS SET STUDENTSUMMARY = ? WHERE ID = ? AND COUNSELOR_ID = ?')) {
-            const summary = params[0];
-            const targetId = Number(params[1]);
-            const cid = Number(params[2]);
-            const target = memoryData.students.find((s: any) => Number(s.id) === targetId && Number(s.counselor_id) === cid);
+          if (upper.includes('UPDATE STUDENTS SET') && upper.includes('STUDENTDETAILS') && upper.includes('STUDENTSUMMARY')) {
+            const details = params[0];
+            const summary = params[1];
+            const targetId = Number(params[2]);
+            let target = memoryData.students.find((s: any) => Number(s.id) === targetId);
+            if (!target && memoryData.students.length > 0) {
+              target = memoryData.students.find((s: any) => {
+                try {
+                  const d = typeof s.studentDetails === 'string' ? JSON.parse(s.studentDetails) : s.studentDetails;
+                  const p0 = typeof details === 'string' ? JSON.parse(details) : details;
+                  return (d?.email && p0?.email && d.email.toLowerCase().trim() === p0.email.toLowerCase().trim()) ||
+                         (d?.name && p0?.name && d.name.toLowerCase().trim() === p0.name.toLowerCase().trim());
+                } catch { return false; }
+              });
+            }
             if (target) {
+              target.studentDetails = typeof details === 'string' ? details : JSON.stringify(details);
               target.studentSummary = summary;
               persist();
               return { changes: 1, lastInsertRowid: 0 };
             }
             return { changes: 0, lastInsertRowid: 0 };
           }
-          if (upper.startsWith('UPDATE STUDENTS SET STUDENTSUMMARY = ? WHERE ID = ?')) {
+          if (upper.includes('UPDATE STUDENTS SET') && upper.includes('STUDENTDETAILS')) {
+            const details = params[0];
+            const targetId = Number(params[1]);
+            let target = memoryData.students.find((s: any) => Number(s.id) === targetId);
+            if (!target && memoryData.students.length > 0) {
+              target = memoryData.students.find((s: any) => {
+                try {
+                  const d = typeof s.studentDetails === 'string' ? JSON.parse(s.studentDetails) : s.studentDetails;
+                  const p0 = typeof details === 'string' ? JSON.parse(details) : details;
+                  return (d?.email && p0?.email && d.email.toLowerCase().trim() === p0.email.toLowerCase().trim()) ||
+                         (d?.name && p0?.name && d.name.toLowerCase().trim() === p0.name.toLowerCase().trim());
+                } catch { return false; }
+              });
+            }
+            if (target) {
+              target.studentDetails = typeof details === 'string' ? details : JSON.stringify(details);
+              persist();
+              return { changes: 1, lastInsertRowid: 0 };
+            }
+            return { changes: 0, lastInsertRowid: 0 };
+          }
+          if (upper.includes('UPDATE STUDENTS SET') && upper.includes('STUDENTSUMMARY')) {
             const summary = params[0];
             const targetId = Number(params[1]);
             const target = memoryData.students.find((s: any) => Number(s.id) === targetId);

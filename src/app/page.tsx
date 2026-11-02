@@ -40,7 +40,11 @@ import {
   Calendar,
   Coins,
   RefreshCw,
-  Loader2
+  Loader2,
+  Mail,
+  Phone,
+  Copy,
+  Check
 } from "lucide-react";
 import * as htmlToImage from 'html-to-image';
 import { jsPDF } from 'jspdf';
@@ -73,6 +77,8 @@ type AnalysisResult = {
   createdAt?: string;
   studentDetails?: {
     name?: string;
+    email?: string;
+    phone?: string;
     cgpa: string;
     originalGrade?: string;
     degreeObjective: string;
@@ -469,6 +475,104 @@ export default function Home() {
   const setCompareResult = (r: AnalysisResult | null) => {
     if (r) setCompareResults(prev => { const next = [...prev]; next[activeCompareTab] = r; return next; });
   };
+
+  const [copiedField, setCopiedField] = useState<string | null>(null);
+  const copyToClipboard = (text: string, fieldId: string) => {
+    if (!text || text === "Not Provided") return;
+    navigator.clipboard.writeText(text).then(() => {
+      setCopiedField(fieldId);
+      setTimeout(() => setCopiedField(null), 2000);
+    }).catch(() => {});
+  };
+
+  const [studentEmail, setStudentEmail] = useState("");
+  const [studentPhone, setStudentPhone] = useState("");
+  const [editingStudent, setEditingStudent] = useState<AnalysisResult | null>(null);
+  const [editForm, setEditForm] = useState({
+    name: "",
+    email: "",
+    phone: "",
+    destinationCountry: "",
+    targetIntake: ""
+  });
+  const [isSavingStudent, setIsSavingStudent] = useState(false);
+
+  const openEditContactModal = (student: AnalysisResult) => {
+    setEditingStudent(student);
+    setEditForm({
+      name: student.studentDetails?.name && student.studentDetails.name !== "Unknown Student" ? student.studentDetails.name : "",
+      email: student.studentDetails?.email && student.studentDetails.email !== "Not Provided" ? student.studentDetails.email : "",
+      phone: student.studentDetails?.phone && student.studentDetails.phone !== "Not Provided" ? student.studentDetails.phone : "",
+      destinationCountry: student.studentDetails?.destinationCountry && student.studentDetails.destinationCountry !== "Not Decided" ? student.studentDetails.destinationCountry : "",
+      targetIntake: student.studentDetails?.targetIntake && student.studentDetails.targetIntake !== "Not Decided" ? student.studentDetails.targetIntake : ""
+    });
+  };
+
+  const handleSaveEditedStudent = async () => {
+    if (!editingStudent) return;
+    setIsSavingStudent(true);
+    try {
+      const updatedDetails = {
+        ...(editingStudent.studentDetails || {}),
+        name: editForm.name.trim() || editingStudent.studentDetails?.name || "Student",
+        email: editForm.email.trim() || "Not Provided",
+        phone: editForm.phone.trim() || "Not Provided",
+        destinationCountry: editForm.destinationCountry.trim() || editingStudent.studentDetails?.destinationCountry || "Not Decided",
+        targetIntake: editForm.targetIntake.trim() || editingStudent.studentDetails?.targetIntake || "Not Decided",
+      };
+
+      const updatedStudent: AnalysisResult = {
+        ...editingStudent,
+        studentDetails: updatedDetails as any
+      };
+
+      setHistory(prev => {
+        const idx = prev.findIndex(s => (s.id && s.id === editingStudent.id) || (s.studentDetails?.name && s.studentDetails.name === editingStudent.studentDetails?.name));
+        let next: AnalysisResult[];
+        if (idx >= 0) {
+          next = [...prev];
+          next[idx] = updatedStudent;
+        } else {
+          next = [updatedStudent, ...prev];
+        }
+        try {
+          const userStorageKey = currentUser ? `learn_overseas_students_${currentUser.id}` : 'learn_overseas_students';
+          localStorage.setItem(userStorageKey, JSON.stringify(next));
+        } catch (e) {}
+        return next;
+      });
+
+      if (result && ((result.id && result.id === editingStudent.id) || (result.studentDetails?.name && result.studentDetails.name === editingStudent.studentDetails?.name))) {
+        setResult(updatedStudent);
+      }
+
+      if (editingStudent.id) {
+        await fetch('/api/students', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            id: editingStudent.id,
+            studentDetails: updatedDetails
+          })
+        }).catch(() => {});
+      }
+
+      // Also upsert via POST to ensure persistence across all deployment targets (Netlify pure-JS + SQLite on-prem)
+      await fetch('/api/students', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(updatedStudent)
+      }).catch(() => {});
+
+      setEditingStudent(null);
+    } catch (err) {
+      console.error("Failed to save edited student:", err);
+    } finally {
+      setIsSavingStudent(false);
+    }
+  };
   const [searchQuery, setSearchQuery] = useState("");
   const [filterDomain, setFilterDomain] = useState("All");
   const [filterExactCourse, setFilterExactCourse] = useState("All");
@@ -858,7 +962,7 @@ ${chatUser}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`;
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    fetch('/api/auth/me')
+    fetch('/api/auth/me', { credentials: 'include' })
       .then(res => res.json())
       .then(data => {
         if (data && data.authenticated && data.user) {
@@ -1001,8 +1105,39 @@ ${chatUser}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`;
               const existing = mergedMap.get(key);
               if (!existing) {
                 mergedMap.set(key, c);
-              } else if (c.comparisonData && c.comparisonData.length > 0 && (!existing.comparisonData || existing.comparisonData.length === 0)) {
-                mergedMap.set(key, { ...existing, comparisonData: c.comparisonData });
+              } else {
+                // Preserve contact details (email and phone) from cache if server doesn't have them
+                const sDetails: any = existing.studentDetails || {};
+                const cDetails: any = c.studentDetails || {};
+                const mergedDetails = {
+                  ...cDetails,
+                  ...sDetails,
+                  name: (sDetails.name && sDetails.name !== 'Unknown Student') ? sDetails.name : (cDetails.name || sDetails.name || 'Unknown Student'),
+                  email: (sDetails.email && sDetails.email !== 'Not Provided' && sDetails.email.trim()) ? sDetails.email : (cDetails.email || sDetails.email || 'Not Provided'),
+                  phone: (sDetails.phone && sDetails.phone !== 'Not Provided' && sDetails.phone.trim()) ? sDetails.phone : (cDetails.phone || sDetails.phone || 'Not Provided'),
+                  destinationCountry: (sDetails.destinationCountry && sDetails.destinationCountry !== 'Not Decided') ? sDetails.destinationCountry : (cDetails.destinationCountry || sDetails.destinationCountry || 'Not Decided'),
+                  targetIntake: (sDetails.targetIntake && sDetails.targetIntake !== 'Not Decided') ? sDetails.targetIntake : (cDetails.targetIntake || sDetails.targetIntake || 'Not Decided'),
+                };
+                const mergedStudent: AnalysisResult = {
+                  ...existing,
+                  studentDetails: mergedDetails as any,
+                  comparisonData: (existing.comparisonData && existing.comparisonData.length > 0) ? existing.comparisonData : (c.comparisonData || []),
+                  studentSummary: existing.studentSummary || c.studentSummary || ''
+                };
+                mergedMap.set(key, mergedStudent);
+
+                // If cache had valid contact details that server was missing, auto-persist to server!
+                if (
+                  (cDetails.email && cDetails.email !== 'Not Provided' && (!sDetails.email || sDetails.email === 'Not Provided')) ||
+                  (cDetails.phone && cDetails.phone !== 'Not Provided' && (!sDetails.phone || sDetails.phone === 'Not Provided'))
+                ) {
+                  fetch('/api/students', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify(mergedStudent)
+                  }).catch(() => {});
+                }
               }
             }
           }
@@ -1106,6 +1241,8 @@ ${chatUser}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`;
         additionalContext: context,
         destinationCountry,
         targetIntake: intake,
+        email: studentEmail.trim(),
+        phone: studentPhone.trim(),
         counselorId: currentUser ? currentUser.id : 1,
         realtimeFetching,
         existingColleges: appendMode && result ? result.recommendedColleges : undefined,
@@ -1154,9 +1291,26 @@ ${chatUser}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`;
         alert("CRITICAL WARNING: The AI analysis succeeded, but saving to the database FAILED! Error: " + data.dbError + ". This means the student will disappear when you refresh. Please fix your database file permissions (it might be owned by root).");
       }
 
+      if (studentEmail.trim() && (!data.studentDetails?.email || data.studentDetails.email === "Not Provided")) {
+        data.studentDetails = { ...(data.studentDetails || {}), email: studentEmail.trim() };
+      }
+      if (studentPhone.trim() && (!data.studentDetails?.phone || data.studentDetails.phone === "Not Provided")) {
+        data.studentDetails = { ...(data.studentDetails || {}), phone: studentPhone.trim() };
+      }
+
       setResult(data);
+      if (data?.studentDetails?.email && data.studentDetails.email !== "Not Provided") {
+        setStudentEmail(data.studentDetails.email);
+      }
+      if (data?.studentDetails?.phone && data.studentDetails.phone !== "Not Provided") {
+        setStudentPhone(data.studentDetails.phone);
+      }
       setHistory(prev => {
-        const existingIdx = prev.findIndex((s: any) => s.id === data.id);
+        const existingIdx = prev.findIndex((s: any) => 
+          (data.id && s.id === data.id) || 
+          (data.studentDetails?.email && data.studentDetails.email !== "Not Provided" && s.studentDetails?.email === data.studentDetails.email) ||
+          (data.studentDetails?.name && data.studentDetails.name !== "Unknown Student" && s.studentDetails?.name && s.studentDetails.name.toLowerCase().trim() === data.studentDetails.name.toLowerCase().trim())
+        );
         let newHistory: AnalysisResult[];
         if (existingIdx >= 0) {
           newHistory = [...prev];
@@ -1352,6 +1506,8 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
     setPdfUrl(null);
     setManualText("");
     setAdditionalContext("");
+    setStudentEmail("");
+    setStudentPhone("");
     setError(null);
     setExpandedCollegeIdx(null);
     setCompareMode(false);
@@ -1366,6 +1522,8 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
 
   const handleViewStudent = (student: AnalysisResult) => {
     setResult(student);
+    setStudentEmail(student.studentDetails?.email && student.studentDetails.email !== "Not Provided" ? student.studentDetails.email : "");
+    setStudentPhone(student.studentDetails?.phone && student.studentDetails.phone !== "Not Provided" ? student.studentDetails.phone : "");
     if (student.studentDetails?.originalContext) {
       setInputType("text");
       setManualText(student.studentDetails.originalContext);
@@ -1470,6 +1628,7 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ username: loginUsername, password: loginPassword })
       });
       const data = await res.json();
@@ -1484,7 +1643,7 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
   };
 
   const handleLogout = async () => {
-    await fetch('/api/auth/logout', { method: 'POST' });
+    await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
     setCurrentUser(null);
     setHistory([]);
     setResult(null);
@@ -1513,7 +1672,9 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
     const intake = student.studentDetails?.targetIntake || "Not Decided";
     const query = searchQuery.toLowerCase();
     
-    const matchesSearch = name.includes(query) || domain.includes(query) || country.includes(query);
+    const email = (student.studentDetails?.email || "").toLowerCase();
+    const phone = (student.studentDetails?.phone || "").toLowerCase();
+    const matchesSearch = name.includes(query) || domain.includes(query) || country.includes(query) || email.includes(query) || phone.includes(query);
     const matchesFilter = filterDomain === "All" || student.studentDetails?.primaryDomain?.toLowerCase() === filterDomain.toLowerCase();
     const matchesExactCourse = filterExactCourse === "All" || (student.studentDetails as any)?.exactCourse === filterExactCourse;
     
@@ -1837,6 +1998,30 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
                   <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Budget Constraints</label>
                   <input type="text" value={additionalContext} onChange={(e) => setAdditionalContext(e.target.value)} placeholder="e.g. 50 Lakhs or $60,000" className="w-full px-4 py-3 bg-black/40 border border-white/5 rounded-xl text-sm text-slate-200 outline-none focus:border-[#FC7133]/50 focus:ring-1 focus:ring-[#FC7133]/30 placeholder:text-slate-600 transition-all" />
                 </div>
+                <div className="space-y-1.5 col-span-2 sm:col-span-1">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
+                    <Mail className="w-3 h-3 text-[#FC7133]" /> Student Email <span className="text-[9px] text-slate-600 font-normal">(Auto from PDF)</span>
+                  </label>
+                  <input 
+                    type="email" 
+                    value={studentEmail} 
+                    onChange={(e) => setStudentEmail(e.target.value)} 
+                    placeholder="student@example.com" 
+                    className="w-full px-4 py-3 bg-black/40 border border-white/5 rounded-xl text-sm text-slate-200 outline-none focus:border-[#FC7133]/50 focus:ring-1 focus:ring-[#FC7133]/30 placeholder:text-slate-600 transition-all" 
+                  />
+                </div>
+                <div className="space-y-1.5 col-span-2 sm:col-span-1">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
+                    <Phone className="w-3 h-3 text-emerald-400" /> Phone Number <span className="text-[9px] text-slate-600 font-normal">(Auto from PDF)</span>
+                  </label>
+                  <input 
+                    type="text" 
+                    value={studentPhone} 
+                    onChange={(e) => setStudentPhone(e.target.value)} 
+                    placeholder="+91 98765 43210" 
+                    className="w-full px-4 py-3 bg-black/40 border border-white/5 rounded-xl text-sm text-slate-200 outline-none focus:border-[#FC7133]/50 focus:ring-1 focus:ring-[#FC7133]/30 placeholder:text-slate-600 transition-all" 
+                  />
+                </div>
               </div>
 
               <div className="flex flex-col gap-2 py-2">
@@ -2053,15 +2238,84 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
                   </div>
 
                   {/* Student Profile Header */}
-                  <div className="flex items-center gap-4 mb-6 pb-6 border-b border-white/5">
-                    <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#FC7133] via-[#F9D440] to-[#7DC1B1] p-px shadow-lg shadow-[#FC7133]/20">
-                      <div className="w-full h-full bg-[#111113] rounded-2xl flex items-center justify-center text-xl font-black text-white">
-                        {res.studentDetails?.name ? res.studentDetails.name.charAt(0) : "U"}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 pb-6 border-b border-white/5">
+                    <div className="flex items-center gap-4">
+                      <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#FC7133] via-[#F9D440] to-[#7DC1B1] p-px shadow-lg shadow-[#FC7133]/20 shrink-0">
+                        <div className="w-full h-full bg-[#111113] rounded-2xl flex items-center justify-center text-xl font-black text-white">
+                          {res.studentDetails?.name ? res.studentDetails.name.charAt(0) : "U"}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2.5">
+                          <h2 className="text-2xl font-black text-white">{res.studentDetails?.name || "Unknown Student"}</h2>
+                          <button 
+                            onClick={() => openEditContactModal(res)}
+                            className="p-1 text-slate-500 hover:text-[#FC7133] transition-colors rounded-lg hover:bg-white/5"
+                            title="Edit Student Info"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                        <p className="text-sm font-bold text-[#FC7133]">{res.studentDetails?.primaryDomain} Applicant</p>
                       </div>
                     </div>
-                    <div>
-                      <h2 className="text-2xl font-black text-white">{res.studentDetails?.name || "Unknown Student"}</h2>
-                      <p className="text-sm font-bold text-[#FC7133]">{res.studentDetails?.primaryDomain} Applicant</p>
+
+                    {/* Dynamic Contact Pills */}
+                    <div className="flex flex-wrap items-center gap-2">
+                      {/* Email Pill */}
+                      <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-black/40 border border-white/5 text-xs font-semibold">
+                        <Mail className="w-3.5 h-3.5 text-[#FC7133]" />
+                        {res.studentDetails?.email && res.studentDetails.email !== "Not Provided" ? (
+                          <a 
+                            href={`mailto:${res.studentDetails.email}`} 
+                            className="text-slate-200 hover:text-[#FC7133] transition-colors hover:underline"
+                          >
+                            {res.studentDetails.email}
+                          </a>
+                        ) : (
+                          <span className="text-slate-500 italic">No email</span>
+                        )}
+                        {res.studentDetails?.email && res.studentDetails.email !== "Not Provided" && (
+                          <button 
+                            onClick={() => copyToClipboard(res.studentDetails?.email || '', 'header-email')}
+                            className="ml-1 text-slate-500 hover:text-white transition-colors p-0.5"
+                            title="Copy Email"
+                          >
+                            {copiedField === 'header-email' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Phone Pill */}
+                      <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-black/40 border border-white/5 text-xs font-semibold">
+                        <Phone className="w-3.5 h-3.5 text-emerald-400" />
+                        {res.studentDetails?.phone && res.studentDetails.phone !== "Not Provided" ? (
+                          <a 
+                            href={`tel:${res.studentDetails.phone.replace(/\s+/g, '')}`} 
+                            className="text-slate-200 hover:text-[#FC7133] transition-colors"
+                          >
+                            {res.studentDetails.phone}
+                          </a>
+                        ) : (
+                          <span className="text-slate-500 italic">No phone</span>
+                        )}
+                        {res.studentDetails?.phone && res.studentDetails.phone !== "Not Provided" && (
+                          <button 
+                            onClick={() => copyToClipboard(res.studentDetails?.phone || '', 'header-phone')}
+                            className="ml-1 text-slate-500 hover:text-white transition-colors p-0.5"
+                            title="Copy Phone"
+                          >
+                            {copiedField === 'header-phone' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                          </button>
+                        )}
+                      </div>
+
+                      <button
+                        onClick={() => openEditContactModal(res)}
+                        className="px-3 py-1.5 rounded-xl bg-[#FC7133]/10 hover:bg-[#FC7133]/20 border border-[#FC7133]/25 text-[#FC7133] text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-inner"
+                      >
+                        <Pencil className="w-3 h-3" /> Edit Profile
+                      </button>
                     </div>
                   </div>
 
@@ -2628,6 +2882,7 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
                   <thead>
                     <tr className="border-b border-white/5 bg-black/40">
                       <th className="p-5 text-xs font-bold text-slate-500 uppercase tracking-widest whitespace-nowrap">Student Name</th>
+                      <th className="p-5 text-xs font-bold text-slate-500 uppercase tracking-widest whitespace-nowrap">Contact Details</th>
                       <th className="p-5 text-xs font-bold text-slate-500 uppercase tracking-widest whitespace-nowrap">Counselor</th>
                       <th className="p-5 text-xs font-bold text-slate-500 uppercase tracking-widest whitespace-nowrap">Domain</th>
                       <th className="p-5 text-xs font-bold text-slate-500 uppercase tracking-widest whitespace-nowrap">Target</th>
@@ -2639,7 +2894,7 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
                   <tbody className="divide-y divide-white/5">
                     {sortedHistory.length === 0 ? (
                       <tr>
-                        <td colSpan={7} className="p-12 text-center">
+                        <td colSpan={8} className="p-12 text-center">
                            <Users className="w-8 h-8 text-slate-600 mx-auto mb-3" />
                            <p className="text-sm font-medium text-slate-400">No students found matching your criteria.</p>
                            {searchQuery || filterDomain !== "All" ? (
@@ -2657,10 +2912,66 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
                       <tr key={student.id || i} className="hover:bg-white/[0.02] transition-colors group">
                         <td className="p-5">
                           <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-slate-700 to-slate-800 flex items-center justify-center text-xs font-black text-white">
+                            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-slate-700 to-slate-800 flex items-center justify-center text-xs font-black text-white shrink-0">
                               {name.charAt(0)}
                             </div>
-                            <span className="text-sm font-bold text-slate-200">{name}</span>
+                            <div className="flex flex-col">
+                              <span className="text-sm font-bold text-slate-200">{name}</span>
+                              <span className="text-[11px] text-slate-500">{student.studentDetails?.degreeObjective || "Candidate"}</span>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="p-5">
+                          <div className="flex flex-col gap-1.5 min-w-[210px]">
+                            {student.studentDetails?.email && student.studentDetails.email !== "Not Provided" ? (
+                              <div className="flex items-center gap-2 text-xs font-medium text-slate-200">
+                                <Mail className="w-3.5 h-3.5 text-[#FC7133] shrink-0" />
+                                <a 
+                                  href={`mailto:${student.studentDetails.email}`} 
+                                  onClick={(e) => e.stopPropagation()} 
+                                  className="hover:underline hover:text-white truncate max-w-[170px]" 
+                                  title={student.studentDetails.email}
+                                >
+                                  {student.studentDetails.email}
+                                </a>
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); copyToClipboard(student.studentDetails?.email || '', `email-${student.id || i}`); }}
+                                  className="text-slate-500 hover:text-white transition-colors p-0.5"
+                                  title="Copy Email"
+                                >
+                                  {copiedField === `email-${student.id || i}` ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                                </button>
+                              </div>
+                            ) : (
+                              <span className="text-[11px] text-slate-600 italic flex items-center gap-1.5">
+                                <Mail className="w-3 h-3 text-slate-600" /> Email not provided
+                              </span>
+                            )}
+
+                            {student.studentDetails?.phone && student.studentDetails.phone !== "Not Provided" ? (
+                              <div className="flex items-center gap-2 text-xs font-medium text-slate-300">
+                                <Phone className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                                <a 
+                                  href={`tel:${student.studentDetails.phone.replace(/\s+/g, '')}`} 
+                                  onClick={(e) => e.stopPropagation()} 
+                                  className="hover:text-white truncate max-w-[170px]" 
+                                  title={student.studentDetails.phone}
+                                >
+                                  {student.studentDetails.phone}
+                                </a>
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); copyToClipboard(student.studentDetails?.phone || '', `phone-${student.id || i}`); }}
+                                  className="text-slate-500 hover:text-white transition-colors p-0.5"
+                                  title="Copy Phone"
+                                >
+                                  {copiedField === `phone-${student.id || i}` ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                                </button>
+                              </div>
+                            ) : (
+                              <span className="text-[11px] text-slate-600 italic flex items-center gap-1.5">
+                                <Phone className="w-3 h-3 text-slate-600" /> Phone not provided
+                              </span>
+                            )}
                           </div>
                         </td>
                         <td className="p-5">
@@ -2704,7 +3015,7 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
                             <button onClick={() => handleViewStudent(student)} className="p-2 bg-[#FC7133]/10 hover:bg-[#FC7133]/20 border border-[#FC7133]/20 text-[#FC7133] hover:text-[#FC7133]/80 rounded-lg transition-all shadow-inner" title="View Profile">
                               <Eye className="w-4 h-4" />
                             </button>
-                            <button onClick={() => handleViewStudent(student)} className="p-2 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 text-emerald-400 hover:text-emerald-300 rounded-lg transition-all shadow-inner" title="Edit Student">
+                            <button onClick={() => openEditContactModal(student)} className="p-2 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 text-emerald-400 hover:text-emerald-300 rounded-lg transition-all shadow-inner" title="Edit Student">
                               <Pencil className="w-4 h-4" />
                             </button>
                             <button onClick={() => handleDeleteStudent(student)} className="p-2 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 text-rose-400 hover:text-rose-300 rounded-lg transition-all shadow-inner" title="Delete Record">
@@ -3165,6 +3476,117 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
 
       </main>
     </div>
+
+    {/* Edit Student & Contact Details Modal */}
+    {editingStudent && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
+        <div className="w-full max-w-lg bg-[#111114] border border-white/10 rounded-3xl p-6 shadow-2xl relative overflow-hidden">
+          <div className="flex items-center justify-between pb-4 border-b border-white/5 mb-5">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#FC7133] to-[#F9D440] p-px">
+                <div className="w-full h-full bg-[#111113] rounded-xl flex items-center justify-center text-sm font-bold text-white">
+                  {editForm.name ? editForm.name.charAt(0) : "S"}
+                </div>
+              </div>
+              <div>
+                <h3 className="text-lg font-black text-white">Edit Student Details</h3>
+                <p className="text-xs text-slate-400 font-medium">Update contact info for Superleap CRM & roster sync</p>
+              </div>
+            </div>
+            <button 
+              onClick={() => setEditingStudent(null)}
+              className="text-slate-400 hover:text-white p-2 rounded-lg hover:bg-white/5 transition-colors text-sm font-bold cursor-pointer"
+            >
+              ✕
+            </button>
+          </div>
+
+          <div className="space-y-4">
+            <div>
+              <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1.5">Student Full Name</label>
+              <input 
+                type="text" 
+                value={editForm.name} 
+                onChange={(e) => setEditForm(prev => ({ ...prev, name: e.target.value }))}
+                placeholder="e.g. John Doe" 
+                className="w-full px-4 py-2.5 bg-black/50 border border-white/10 rounded-xl text-sm text-slate-200 outline-none focus:border-[#FC7133]/60 focus:ring-1 focus:ring-[#FC7133]/30"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1.5 flex items-center gap-1.5">
+                  <Mail className="w-3.5 h-3.5 text-[#FC7133]" /> Email Address
+                </label>
+                <input 
+                  type="email" 
+                  value={editForm.email} 
+                  onChange={(e) => setEditForm(prev => ({ ...prev, email: e.target.value }))}
+                  placeholder="student@example.com" 
+                  className="w-full px-4 py-2.5 bg-black/50 border border-white/10 rounded-xl text-sm text-slate-200 outline-none focus:border-[#FC7133]/60 focus:ring-1 focus:ring-[#FC7133]/30"
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1.5 flex items-center gap-1.5">
+                  <Phone className="w-3.5 h-3.5 text-emerald-400" /> Phone Number
+                </label>
+                <input 
+                  type="text" 
+                  value={editForm.phone} 
+                  onChange={(e) => setEditForm(prev => ({ ...prev, phone: e.target.value }))}
+                  placeholder="+91 98765 43210" 
+                  className="w-full px-4 py-2.5 bg-black/50 border border-white/10 rounded-xl text-sm text-slate-200 outline-none focus:border-[#FC7133]/60 focus:ring-1 focus:ring-[#FC7133]/30"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1.5">Target Country</label>
+                <input 
+                  type="text" 
+                  value={editForm.destinationCountry} 
+                  onChange={(e) => setEditForm(prev => ({ ...prev, destinationCountry: e.target.value }))}
+                  placeholder="e.g. USA" 
+                  className="w-full px-4 py-2.5 bg-black/50 border border-white/10 rounded-xl text-sm text-slate-200 outline-none focus:border-[#FC7133]/60 focus:ring-1 focus:ring-[#FC7133]/30"
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1.5">Target Intake</label>
+                <input 
+                  type="text" 
+                  value={editForm.targetIntake} 
+                  onChange={(e) => setEditForm(prev => ({ ...prev, targetIntake: e.target.value }))}
+                  placeholder="e.g. Fall 2026" 
+                  className="w-full px-4 py-2.5 bg-black/50 border border-white/10 rounded-xl text-sm text-slate-200 outline-none focus:border-[#FC7133]/60 focus:ring-1 focus:ring-[#FC7133]/30"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-end gap-3 mt-6 pt-4 border-t border-white/5">
+            <button 
+              type="button"
+              onClick={() => setEditingStudent(null)}
+              className="px-4 py-2.5 rounded-xl text-xs font-bold text-slate-400 hover:text-white hover:bg-white/5 transition-all cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button 
+              type="button"
+              onClick={handleSaveEditedStudent}
+              disabled={isSavingStudent}
+              className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#FC7133] to-[#F9D440] text-black text-xs font-black shadow-lg shadow-[#FC7133]/20 hover:opacity-95 transition-all flex items-center gap-2 cursor-pointer"
+            >
+              {isSavingStudent ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+              Save Changes
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
 
     {/* Dedicated High-Fidelity Printable/Exportable Report Container */}
     {result && (
