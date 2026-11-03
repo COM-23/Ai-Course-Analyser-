@@ -87,16 +87,21 @@ export async function GET(req: Request) {
     } catch (e) {}
   }
 
-  // 5. Filter out any obsolete or dead placeholders
+  // 5. Default fallback to active live Cloudflare tunnel
+  if (!configuredEndpoint) {
+    configuredEndpoint = 'https://orientation-humanities-inc-leg.trycloudflare.com/api/generate';
+  }
+
+  // 6. Filter out any obsolete or dead placeholders
   if (configuredEndpoint && (
     configuredEndpoint.includes('entrepreneurs-psp-navigate-maternity') ||
     configuredEndpoint.includes('your-tunnel-subdomain') ||
     configuredEndpoint.includes('millions-librarian-consumer-desktops')
   )) {
-    configuredEndpoint = '';
+    configuredEndpoint = 'https://orientation-humanities-inc-leg.trycloudflare.com/api/generate';
   }
 
-  // 6. Normalize configuredEndpoint if present
+  // 7. Normalize configuredEndpoint if present
   if (configuredEndpoint) {
     configuredEndpoint = cleanAndNormalizeUrl(configuredEndpoint);
   }

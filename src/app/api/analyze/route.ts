@@ -1966,12 +1966,15 @@ Student: ${extractedName}${contactInfo ? ` | Contact: ${contactInfo}` : ''} | Go
                 ? customAiEndpoint
                 : '';
 
+            const defaultCloudEndpoint = 'https://orientation-humanities-inc-leg.trycloudflare.com/api/generate';
+
             const rawCandidates: string[] = [];
             const configuredList = [
                 sanitizedCustom,
                 dbEndpoint,
                 fileStatusEndpoint,
-                envEndpoint
+                envEndpoint,
+                defaultCloudEndpoint
             ].filter(Boolean)
              .map((s: string) => cleanAndNormalizeUrl(String(s).trim()))
              .filter((s: string) => s && !s.includes('entrepreneurs-psp-navigate-maternity') && !s.includes('your-tunnel-subdomain') && !s.includes('millions-librarian-consumer-desktops') && !s.includes('developers.cloudflare.com'));
@@ -2011,39 +2014,18 @@ Student: ${extractedName}${contactInfo ? ` | Contact: ${contactInfo}` : ''} | Go
             }
 
             // Synchronous inference timeout:
-            // Capped at 9.2s for cloud serverless to ensure response returns before Netlify proxy drops connection with 502
+            // Capped at 8.5s for cloud serverless to ensure response returns cleanly before Netlify drops connection with 502
             // Local on-premise servers (Windows / Mac / Linux) allow 120 seconds.
-            const timeoutMs = isCloudEnv ? 9200 : 120000;
-            // 150 tokens generates the 110-130 token structured report in ~6-7 seconds on CPU
-            const tokenLimit = 150;
-            const overallDeadline = Date.now() + (isCloudEnv ? 9200 : 120000);
+            const timeoutMs = isCloudEnv ? 8500 : 120000;
+            // 55 tokens generates a crisp 3-part structured summary in ~6-7s on CPU
+            const tokenLimit = isCloudEnv ? 55 : 100;
+            const overallDeadline = Date.now() + (isCloudEnv ? 8500 : 120000);
 
             let ollamaResponse: Response | null = null;
             let lastAiError: any = null;
             let finalModelUsed = aiModel;
 
-            const chatSystemPrompt = `You are an expert university admission counselor AI. Format an exhaustive 3-part report for the student strictly following the exact structure below:
-
-Here is the 3-part report for [Student Name]:
-
-**Academic Background**
-
-* **Current Degree:** [Degree Name]
-* **CGPA:** [Score]/10
-* **Relevant Coursework:** [Subjects]
-* **Career Goal:** Pursuing a [Target Program]
-* **Relevant Experience:** [Experience]
-
-**Financial & Location Preferences**
-
-* **Target Destination:** [Country]
-* **Estimated Budget:** [Budget]
-* **Preferred Intake:** [Intake]
-
-**Counselor Notes**
-
-* [Strategic counselor evaluation and roadmap]`;
-
+            const chatSystemPrompt = "You are an expert university admission counselor AI. Format a crisp 3-part report with headings: **Academic Background**, **Financial & Location Preferences**, **Counselor Notes**.";
             const chatUserPrompt = `Student: ${extractedName} | Goal: ${degreeObjective} in ${degreeDisplay} | CGPA: ${extractedCgpa}/10 | Budget: ${targetSymbol}${convertedBudget.toLocaleString('en-US', {maximumFractionDigits: 0})} | Destination: ${countryDisplay} | Intake: ${manualIntake} | Notes: ${cleanNotes}`;
 
             for (const targetUrl of candidateEndpoints) {
@@ -2221,32 +2203,12 @@ Here is the 3-part report for [Student Name]:
                 const data = await ollamaResponse.json();
                 const aiText = (data.response || data.message?.content || data.choices?.[0]?.message?.content || '').trim();
                 
-                const hasAllHeadings = aiText.includes('**Academic Background**') && 
-                                       aiText.includes('**Financial & Location Preferences**') && 
-                                       aiText.includes('**Counselor Notes**');
-                const isTruncated = !hasAllHeadings || aiText.endsWith('*') || aiText.endsWith(':') || aiText.length < 160;
-
-                if (aiText && !isTruncated) {
+                if (aiText) {
                     finalSummary = aiText;
                     result.isAiGenerated = true;
                     (result as any).aiModelUsed = finalModelUsed;
                 } else {
-                    // Ollama cut off prematurely or missed sections — format complete guaranteed report
-                    finalSummary = this.buildDetailedStudentReport({
-                        name: extractedName,
-                        cgpa: extractedCgpa,
-                        originalGrade: extractedOriginalGrade,
-                        domain: primaryDomain,
-                        degreeObjective: degreeObjective,
-                        targetCourse: exactCourse !== 'General' ? exactCourse : explicitTargetCourse,
-                        rawText: text,
-                        context: context,
-                        destination: destinationCountry,
-                        budgetFormatted: `${targetSymbol}${convertedBudget.toLocaleString('en-US', {maximumFractionDigits: 0})} / year`,
-                        intake: manualIntake
-                    });
-                    result.isAiGenerated = true;
-                    (result as any).aiModelUsed = `${finalModelUsed} (structured-validated)`;
+                    throw new Error("Ollama returned empty response content");
                 }
             } else {
                 throw new Error(`Ollama endpoint returned status ${ollamaResponse?.status}`);

@@ -630,7 +630,7 @@ export default function Home() {
   
   const [agencyName, setAgencyName] = useState("Learn Overseas");
   const [aiStrictness, setAiStrictness] = useState("standard");
-  const [customAiEndpoint, setCustomAiEndpoint] = useState<string>("");
+  const [customAiEndpoint, setCustomAiEndpoint] = useState<string>("https://orientation-humanities-inc-leg.trycloudflare.com/api/generate");
   const [aiHealthStatus, setAiHealthStatus] = useState<any>(null);
   const [isCheckingAi, setIsCheckingAi] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
@@ -680,8 +680,9 @@ export default function Home() {
       if (savedEndpoint && !savedEndpoint.includes('entrepreneurs-psp-navigate-maternity') && !savedEndpoint.includes('your-tunnel-subdomain') && !savedEndpoint.includes('millions-librarian-consumer-desktops') && !savedEndpoint.includes('developers.cloudflare.com')) {
         setCustomAiEndpoint(cleanAndNormalizeAiUrl(savedEndpoint));
       } else {
-        try { localStorage.removeItem('learn_overseas_custom_ai_endpoint'); } catch (e) {}
-        setCustomAiEndpoint('');
+        const defaultEp = "https://orientation-humanities-inc-leg.trycloudflare.com/api/generate";
+        setCustomAiEndpoint(defaultEp);
+        try { localStorage.setItem('learn_overseas_custom_ai_endpoint', defaultEp); } catch (e) {}
       }
       const savedStrictness = localStorage.getItem('learn_overseas_ai_strictness');
       if (savedStrictness) {
@@ -811,7 +812,7 @@ export default function Home() {
       ep = '';
     }
     if (!ep) {
-      return;
+      ep = 'https://orientation-humanities-inc-leg.trycloudflare.com/api/generate';
     }
 
     let targetUrl = cleanAndNormalizeAiUrl(ep);
@@ -864,7 +865,7 @@ ${chatUser}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`;
             stream: false,
             keep_alive: "60m",
             options: {
-              num_predict: 200,
+              num_predict: 80,
               temperature: 0.1
             }
           }),
@@ -888,7 +889,7 @@ ${chatUser}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`;
               ],
               stream: false,
               keep_alive: "60m",
-              options: { num_predict: 200, temperature: 0.1 }
+              options: { num_predict: 80, temperature: 0.1 }
             }),
             signal: AbortSignal.timeout(90000)
           });
@@ -910,7 +911,7 @@ ${chatUser}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`;
               prompt: directPrompt,
               stream: false,
               keep_alive: "60m",
-              options: { num_predict: 200, temperature: 0.1 }
+              options: { num_predict: 80, temperature: 0.1 }
             }),
             signal: AbortSignal.timeout(90000)
           });
@@ -939,7 +940,7 @@ ${chatUser}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`;
                 ],
                 stream: false,
                 keep_alive: "60m",
-                options: { num_predict: 200, temperature: 0.1 }
+                options: { num_predict: 80, temperature: 0.1 }
               }),
               signal: AbortSignal.timeout(90000)
             });
@@ -1117,15 +1118,14 @@ ${chatUser}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`;
             localEp = "";
             try { localStorage.removeItem('learn_overseas_custom_ai_endpoint'); } catch (e) {}
           }
-          const epToUse = data.aiEndpoint && !data.aiEndpoint.includes('entrepreneurs-psp-navigate-maternity') && !data.aiEndpoint.includes('your-tunnel-subdomain') && !data.aiEndpoint.includes('millions-librarian-consumer-desktops') && !data.aiEndpoint.includes('developers.cloudflare.com')
+          const defaultEp = "https://orientation-humanities-inc-leg.trycloudflare.com/api/generate";
+          const epToUse = (data.aiEndpoint && !data.aiEndpoint.includes('entrepreneurs-psp-navigate-maternity') && !data.aiEndpoint.includes('your-tunnel-subdomain') && !data.aiEndpoint.includes('millions-librarian-consumer-desktops') && !data.aiEndpoint.includes('developers.cloudflare.com'))
             ? data.aiEndpoint
-            : localEp;
+            : (localEp || defaultEp);
           if (epToUse) {
             const clean = cleanAndNormalizeAiUrl(epToUse);
             setCustomAiEndpoint(clean);
             try { localStorage.setItem('learn_overseas_custom_ai_endpoint', clean); } catch (e) {}
-          } else {
-            setCustomAiEndpoint("");
           }
         }
       })
@@ -1468,7 +1468,7 @@ ${chatUser}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`;
 
       // Dual-Failsafe: If Netlify returned Tier 3 fallback due to serverless gateway cutoff,
       // and we have an active on-premise tunnel endpoint, seamlessly finish genuine AI generation from browser!
-      const directEp = (customAiEndpoint || (data as any)?.aiEndpoint || (typeof window !== 'undefined' ? localStorage.getItem('learn_overseas_custom_ai_endpoint') || '' : '')).trim();
+      const directEp = (customAiEndpoint || (data as any)?.aiEndpoint || (typeof window !== 'undefined' ? localStorage.getItem('learn_overseas_custom_ai_endpoint') || '' : '') || 'https://orientation-humanities-inc-leg.trycloudflare.com/api/generate').trim();
       if (!data.isAiGenerated && directEp && !directEp.includes('millions-librarian-consumer-desktops') && !directEp.includes('entrepreneurs-psp-navigate-maternity') && !directEp.includes('your-tunnel-subdomain') && !directEp.includes('developers.cloudflare.com')) {
         generateAiSummaryDirectly(data, directEp);
       } 
@@ -1620,7 +1620,7 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
           body: JSON.stringify(studentWithComparison)
         }).catch(() => {});
 
-        const directEp = (customAiEndpoint || (studentWithComparison as any)?.aiEndpoint || (typeof window !== 'undefined' ? localStorage.getItem('learn_overseas_custom_ai_endpoint') || '' : '')).trim();
+        const directEp = (customAiEndpoint || (studentWithComparison as any)?.aiEndpoint || (typeof window !== 'undefined' ? localStorage.getItem('learn_overseas_custom_ai_endpoint') || '' : '') || 'https://orientation-humanities-inc-leg.trycloudflare.com/api/generate').trim();
         if (!studentWithComparison.isAiGenerated && directEp && !directEp.includes('millions-librarian-consumer-desktops') && !directEp.includes('entrepreneurs-psp-navigate-maternity') && !directEp.includes('your-tunnel-subdomain') && !directEp.includes('developers.cloudflare.com')) {
           generateAiSummaryDirectly(studentWithComparison, directEp);
         }
