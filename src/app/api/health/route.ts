@@ -128,6 +128,19 @@ export async function GET(req: Request) {
     return NextResponse.json(result);
   }
 
+  // Detect private LAN IPs when running on Netlify Cloud
+  if (isCloudEnv && configuredEndpoint && (
+    configuredEndpoint.includes('192.168.') ||
+    configuredEndpoint.includes('10.') ||
+    configuredEndpoint.includes('127.0.0.1') ||
+    configuredEndpoint.includes('localhost')
+  )) {
+    result.aiServer.status = 'error';
+    result.aiServer.endpoint = configuredEndpoint;
+    result.aiServer.error = `Netlify Cloud cannot reach private LAN IP (${configuredEndpoint}). Netlify runs in the cloud and cannot access your local home/office network directly. Launch Cloudflare Tunnel on your Linux server ('cloudflared tunnel --url http://127.0.0.1:11434') and paste the public https://<subdomain>.trycloudflare.com URL here.`;
+    return NextResponse.json(result);
+  }
+
   const candidateEndpoints = (isCloudEnv
     ? [configuredEndpoint].filter(Boolean)
     : [
@@ -161,7 +174,11 @@ export async function GET(req: Request) {
 
   for (const ep of candidateEndpoints) {
     try {
-      const baseUrl = ep.replace(/\/api\/generate\/?$/, '').replace(/\/+$/, '');
+      const baseUrl = ep
+        .replace(/\/api\/generate\/?$/, '')
+        .replace(/\/api\/chat\/?$/, '')
+        .replace(/\/api\/?$/, '')
+        .replace(/\/+$/, '');
       const authHeaders: Record<string, string> = {};
       if (configuredApiKey) {
         authHeaders['Authorization'] = `Bearer ${configuredApiKey}`;

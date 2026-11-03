@@ -1,91 +1,66 @@
 @echo off
-cd /d "%~dp0"
-title Learn Overseas - AI Course Analyser (Windows)
+setlocal enabledelayedexpansion
+title Learn Overseas AI Server - Production (Windows)
 
 echo ========================================================
-echo   LEARN OVERSEAS - AI COURSE ANALYSER
-echo   UI + Database + Matching Engine (Windows OptiPlex)
+echo   LEARN OVERSEAS - WINDOWS SERVER PRODUCTION RUNNER
 echo ========================================================
-echo Current Directory: %CD%
 echo.
 
-:: Free port 3004 if already held by any old process
-for /f "tokens=5" %%a in ('netstat -aon ^| findstr :3004') do taskkill /f /pid %%a >nul 2>&1
-
+:: 1. Check Node.js installation
 where node >nul 2>&1
 if %errorlevel% neq 0 (
-    echo [ERROR] Node.js is NOT found in system PATH!
-    echo.
-    echo Please install Node.js from https://nodejs.org
-    echo If you just installed it, please restart your computer or command prompt.
-    echo.
+    echo [ERROR] Node.js is not found in your system PATH!
+    echo Please install Node.js LTS (v18, v20 or v22) from https://nodejs.org
     pause
     exit /b 1
 )
 
-echo [OK] Node.js detected:
-node -v
+for /f "tokens=*" %%v in ('node -v') do set NODE_VERSION=%%v
+echo [OK] Detected Node.js: %NODE_VERSION%
+
+:: 2. Check dependencies
 echo.
-
-if not exist "package.json" (
-    echo [ERROR] Cannot find package.json in %CD%!
-    echo Please make sure all files were extracted properly.
-    pause
-    exit /b 1
-)
-
+echo [1/3] Verifying npm dependencies...
 if not exist "node_modules" (
-    echo [Step 1/3] Installing dependencies (first run only)...
+    echo Installing dependencies (this may take a couple minutes on first run)...
     call npm install
     if %errorlevel% neq 0 (
-        echo [ERROR] npm install failed!
+        echo [ERROR] npm install encountered an error.
         pause
         exit /b 1
     )
 ) else (
-    echo [Step 1/3] Dependencies already installed.
+    echo Dependencies already installed.
 )
 
-if not exist ".next" (
-    echo [Step 2/3] Compiling optimized build (one-time setup)...
-    call npm run build
-)
-
+:: 3. Build Next.js application if not built
 echo.
-echo [Step 2.5] Checking Windows Firewall for Port 3004...
-netsh advfirewall firewall show rule name="NextJS Server 3004" >nul 2>&1
-if %errorlevel% neq 0 (
-    echo [Firewall] Allowing inbound traffic on Port 3004...
-    netsh advfirewall firewall add rule name="NextJS Server 3004" dir=in action=allow protocol=TCP localport=3004 >nul 2>&1
+echo [2/3] Checking production build...
+if not exist ".next" (
+    echo Building Next.js application for production...
+    call npm run build
     if %errorlevel% neq 0 (
-        echo [NOTICE] If other computers cannot connect, open CMD as Administrator and run:
-        echo   netsh advfirewall firewall add rule name="NextJS Server 3004" dir=in action=allow protocol=TCP localport=3004
-    ) else (
-        echo [Firewall] Port 3004 successfully opened!
+        echo [ERROR] Build failed! Check the errors above.
+        pause
+        exit /b 1
     )
 ) else (
-    echo [Firewall] Port 3004 is already open.
+    echo Production build found (.next).
 )
 
+:: 4. Start production server
 echo.
+echo [3/3] Starting Learn Overseas Server on Port 3000...
 echo ========================================================
-echo   DETECTING LOCAL NETWORK IP FOR COLLEAGUES:
-echo ========================================================
-ipconfig | findstr /i "IPv4"
-echo ========================================================
-echo.
-echo [Step 3/3] Starting web server on port 3004...
-echo ========================================================
-echo   Web App is LIVE!
-echo   On this Windows PC:   http://localhost:3004
-echo   For your colleagues:  http://[Your-IPv4-Above]:3004
+echo   Local Web Access:   http://localhost:3000
+echo   LAN Network Access: http://0.0.0.0:3000
+echo   To stop the server: Press Ctrl + C
 echo ========================================================
 echo.
 
-call npx next start -p 3004 -H 0.0.0.0
-if %errorlevel% neq 0 (
-    echo [Notice] Falling back to Webpack dev mode...
-    call npx next dev --webpack -p 3004 -H 0.0.0.0
-)
+set PORT=3000
+set NODE_ENV=production
+call npm run start
 
 pause

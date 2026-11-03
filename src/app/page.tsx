@@ -46,7 +46,10 @@ import {
   Copy,
   Check,
   ZoomIn,
-  ZoomOut
+  ZoomOut,
+  PanelLeftClose,
+  PanelLeft,
+  LogOut
 } from "lucide-react";
 import * as htmlToImage from 'html-to-image';
 import { jsPDF } from 'jspdf';
@@ -630,6 +633,7 @@ export default function Home() {
   const [customAiEndpoint, setCustomAiEndpoint] = useState<string>("");
   const [aiHealthStatus, setAiHealthStatus] = useState<any>(null);
   const [isCheckingAi, setIsCheckingAi] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   function cleanAndNormalizeAiUrl(input: string): string {
     if (!input) return '';
@@ -642,16 +646,28 @@ export default function Home() {
       }
     }
     str = str.replace(/\/+$/, '');
-    if (!str.endsWith('/api/generate')) {
-      str = str.replace(/\/api\/?$/, '');
-      str = str + '/api/generate';
-    }
-    return str;
+    // Clean trailing /api/generate, /api/chat, or /api so we always build on clean origin
+    str = str.replace(/\/api\/generate\/?$/, '').replace(/\/api\/chat\/?$/, '').replace(/\/api\/?$/, '').replace(/\/+$/, '');
+    return str + '/api/generate';
   }
+
+  const toggleSidebar = () => {
+    setIsSidebarCollapsed(prev => {
+      const next = !prev;
+      try {
+        localStorage.setItem('learn_overseas_sidebar_collapsed', String(next));
+      } catch (e) {}
+      return next;
+    });
+  };
 
   // Restore custom AI endpoint and strictness from localStorage immediately on client mount
   useEffect(() => {
     try {
+      const savedCollapse = localStorage.getItem('learn_overseas_sidebar_collapsed');
+      if (savedCollapse === 'true') {
+        setIsSidebarCollapsed(true);
+      }
       const savedEndpoint = localStorage.getItem('learn_overseas_custom_ai_endpoint');
       if (savedEndpoint && !savedEndpoint.includes('entrepreneurs-psp-navigate-maternity') && !savedEndpoint.includes('your-tunnel-subdomain') && !savedEndpoint.includes('millions-librarian-consumer-desktops') && !savedEndpoint.includes('developers.cloudflare.com')) {
         setCustomAiEndpoint(cleanAndNormalizeAiUrl(savedEndpoint));
@@ -1854,9 +1870,9 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
         <div className="absolute bottom-[-20%] right-[-10%] w-[50%] h-[50%] rounded-full bg-[#7DC1B1]/10 blur-[120px] animate-blob" style={{ animationDelay: '2s' }} />
       </div>
 
-      {/* Global Sidebar */}
-      <aside className="relative z-20 w-[240px] xl:w-[260px] bg-[#0A0A0B]/90 backdrop-blur-3xl border-r border-white/5 flex flex-col hidden lg:flex shrink-0">
-        <div className="p-4 xl:p-5 border-b border-white/5 flex items-center justify-between">
+      {/* Global Sidebar (Collapsible Gemini-Style) */}
+      <aside className={`relative z-20 transition-all duration-300 ease-in-out bg-[#0A0A0B]/90 backdrop-blur-3xl border-r border-white/5 flex flex-col hidden lg:flex shrink-0 ${isSidebarCollapsed ? 'w-[72px]' : 'w-[240px] xl:w-[260px]'}`}>
+        <div className={`p-4 xl:p-5 border-b border-white/5 flex items-center ${isSidebarCollapsed ? 'flex-col gap-3 justify-center' : 'justify-between'}`}>
           <div className="flex items-center gap-3 min-w-0">
             <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#FC7133] via-[#F9D440] to-[#7DC1B1] p-px shadow-lg shadow-[#FC7133]/20 shrink-0">
               <div className="w-full h-full bg-[#111113] rounded-xl flex items-center justify-center p-1.5">
@@ -1867,64 +1883,99 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
                 />
               </div>
             </div>
-            <div className="min-w-0">
-              <h1 className="text-base font-black text-white leading-tight truncate">Learn<br/>Overseas</h1>
-            </div>
+            {!isSidebarCollapsed && (
+              <div className="min-w-0">
+                <h1 className="text-base font-black text-white leading-tight truncate">Learn<br/>Overseas</h1>
+              </div>
+            )}
           </div>
-          <div className="flex items-center gap-1.5 shrink-0 ml-2">
-            <div className="flex items-center bg-white/5 border border-white/10 rounded-xl px-1 py-0.5 text-slate-300">
+
+          {!isSidebarCollapsed ? (
+            <div className="flex items-center gap-1.5 shrink-0 ml-2">
+              <div className="flex items-center bg-white/5 border border-white/10 rounded-xl px-1 py-0.5 text-slate-300">
+                <button
+                  type="button"
+                  onClick={() => handleZoomChange(uiZoom - 5)}
+                  disabled={uiZoom <= 65}
+                  className="p-1 hover:text-white disabled:opacity-30 rounded cursor-pointer transition-colors"
+                  title="Zoom Out (More Compact)"
+                >
+                  <ZoomOut className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleZoomChange(85)}
+                  className="text-[10px] font-mono font-bold px-1 text-slate-400 hover:text-white cursor-pointer select-none"
+                  title="Reset zoom to 85%"
+                >
+                  {uiZoom}%
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleZoomChange(uiZoom + 5)}
+                  disabled={uiZoom >= 125}
+                  className="p-1 hover:text-white disabled:opacity-30 rounded cursor-pointer transition-colors"
+                  title="Zoom In"
+                >
+                  <ZoomIn className="w-3.5 h-3.5" />
+                </button>
+              </div>
               <button
-                type="button"
-                onClick={() => handleZoomChange(uiZoom - 5)}
-                disabled={uiZoom <= 65}
-                className="p-1 hover:text-white disabled:opacity-30 rounded cursor-pointer transition-colors"
-                title="Zoom Out (More Compact)"
+                onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
+                className="p-1.5 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 text-white transition-all shadow-md shrink-0 cursor-pointer"
+                title="Toggle Theme"
               >
-                <ZoomOut className="w-3.5 h-3.5" />
+                {theme === 'dark' ? <Sun className="w-3.5 h-3.5 text-[#F9D440]" /> : <Moon className="w-3.5 h-3.5 text-[#FC7133]" />}
               </button>
               <button
-                type="button"
-                onClick={() => handleZoomChange(85)}
-                className="text-[10px] font-mono font-bold px-1 text-slate-400 hover:text-white cursor-pointer select-none"
-                title="Reset zoom to 85%"
+                onClick={toggleSidebar}
+                className="p-1.5 rounded-xl bg-white/5 border border-white/10 hover:bg-[#FC7133]/20 hover:text-[#FC7133] text-slate-400 transition-all shadow-md shrink-0 cursor-pointer"
+                title="Collapse Sidebar"
               >
-                {uiZoom}%
-              </button>
-              <button
-                type="button"
-                onClick={() => handleZoomChange(uiZoom + 5)}
-                disabled={uiZoom >= 125}
-                className="p-1 hover:text-white disabled:opacity-30 rounded cursor-pointer transition-colors"
-                title="Zoom In"
-              >
-                <ZoomIn className="w-3.5 h-3.5" />
+                <PanelLeftClose className="w-3.5 h-3.5" />
               </button>
             </div>
-            <button
-              onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
-              className="p-1.5 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 text-white transition-all shadow-md shrink-0 cursor-pointer"
-              title="Toggle Theme"
-            >
-              {theme === 'dark' ? <Sun className="w-3.5 h-3.5 text-[#F9D440]" /> : <Moon className="w-3.5 h-3.5 text-[#FC7133]" />}
-            </button>
-          </div>
+          ) : (
+            <div className="flex flex-col items-center gap-2 mt-1">
+              <button
+                onClick={toggleSidebar}
+                className="p-2 rounded-xl bg-white/5 border border-white/10 hover:bg-[#FC7133]/20 hover:text-[#FC7133] text-slate-400 transition-all shadow-md cursor-pointer"
+                title="Expand Sidebar"
+              >
+                <PanelLeft className="w-4 h-4 text-[#FC7133]" />
+              </button>
+              <button
+                onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
+                className="p-2 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 text-white transition-all shadow-md cursor-pointer"
+                title="Toggle Theme"
+              >
+                {theme === 'dark' ? <Sun className="w-3.5 h-3.5 text-[#F9D440]" /> : <Moon className="w-3.5 h-3.5 text-[#FC7133]" />}
+              </button>
+            </div>
+          )}
         </div>
 
-        <div className="flex-1 py-5 xl:py-8 px-3 xl:px-4 flex flex-col gap-1.5 xl:gap-2">
+        <div className={`flex-1 py-5 xl:py-8 ${isSidebarCollapsed ? 'px-2' : 'px-3 xl:px-4'} flex flex-col gap-1.5 xl:gap-2`}>
            <button 
              onClick={() => setActiveTab("dashboard")}
-             className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${activeTab === 'dashboard' ? 'bg-[#FC7133]/15 text-[#FC7133] border border-[#FC7133]/30 shadow-inner' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}>
-             <LayoutDashboard className="w-4 h-4" /> Dashboard
+             title="Dashboard"
+             className={`flex items-center ${isSidebarCollapsed ? 'justify-center px-0 py-3' : 'gap-3 px-4 py-3'} rounded-xl text-sm font-bold transition-all ${activeTab === 'dashboard' ? 'bg-[#FC7133]/15 text-[#FC7133] border border-[#FC7133]/30 shadow-inner' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}>
+             <LayoutDashboard className={isSidebarCollapsed ? "w-5 h-5" : "w-4 h-4"} />
+             {!isSidebarCollapsed && <span>Dashboard</span>}
            </button>
            <button 
              onClick={() => setActiveTab("analyzer")}
-             className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${activeTab === 'analyzer' ? 'bg-[#FC7133]/15 text-[#FC7133] border border-[#FC7133]/30 shadow-inner' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}>
-             <Sparkles className="w-4 h-4" /> AI Analyzer
+             title="AI Analyzer"
+             className={`flex items-center ${isSidebarCollapsed ? 'justify-center px-0 py-3' : 'gap-3 px-4 py-3'} rounded-xl text-sm font-bold transition-all ${activeTab === 'analyzer' ? 'bg-[#FC7133]/15 text-[#FC7133] border border-[#FC7133]/30 shadow-inner' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}>
+             <Sparkles className={isSidebarCollapsed ? "w-5 h-5" : "w-4 h-4"} />
+             {!isSidebarCollapsed && <span>AI Analyzer</span>}
            </button>
            <button 
              onClick={() => setActiveTab("roster")}
-             className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${activeTab === 'roster' ? 'bg-[#FC7133]/15 text-[#FC7133] border border-[#FC7133]/30 shadow-inner' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}>
-             <Users className="w-4 h-4" /> Student Roster
+             title="Student Roster"
+             className={`flex items-center ${isSidebarCollapsed ? 'justify-center px-0 py-3' : 'gap-3 px-4 py-3'} rounded-xl text-sm font-bold transition-all ${activeTab === 'roster' ? 'bg-[#FC7133]/15 text-[#FC7133] border border-[#FC7133]/30 shadow-inner' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}>
+             <Users className={isSidebarCollapsed ? "w-5 h-5" : "w-4 h-4"} />
+             {!isSidebarCollapsed && <span>Student Roster</span>}
            </button>
            
            <button 
@@ -1932,28 +1983,48 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
                setActiveTab("settings");
                if (currentUser?.role !== 'super_admin') setSettingsTab("preferences");
              }}
-             className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${activeTab === 'settings' ? 'bg-rose-500/10 text-rose-300 border border-rose-500/20 shadow-inner' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}>
-             <Settings className="w-4 h-4" /> System Settings
+             title="System Settings"
+             className={`flex items-center ${isSidebarCollapsed ? 'justify-center px-0 py-3' : 'gap-3 px-4 py-3'} rounded-xl text-sm font-bold transition-all ${activeTab === 'settings' ? 'bg-rose-500/10 text-rose-300 border border-rose-500/20 shadow-inner' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}>
+             <Settings className={isSidebarCollapsed ? "w-5 h-5" : "w-4 h-4"} />
+             {!isSidebarCollapsed && <span>System Settings</span>}
            </button>
            
            <div className="mt-auto flex flex-col gap-2">
-             <div className="p-4 rounded-xl bg-gradient-to-br from-[#FC7133]/10 to-[#F9D440]/10 border border-[#FC7133]/20 mb-2 flex flex-col gap-4">
-               <div className="flex items-center gap-3">
-                 <div className="w-8 h-8 rounded-full bg-[#FC7133]/20 flex items-center justify-center border border-[#FC7133]/30 shrink-0">
+             {!isSidebarCollapsed ? (
+               <div className="p-4 rounded-xl bg-gradient-to-br from-[#FC7133]/10 to-[#F9D440]/10 border border-[#FC7133]/20 mb-2 flex flex-col gap-4">
+                 <div className="flex items-center gap-3">
+                   <div className="w-8 h-8 rounded-full bg-[#FC7133]/20 flex items-center justify-center border border-[#FC7133]/30 shrink-0">
+                     <span className="text-xs font-black text-[#FC7133]">{currentUser.name.charAt(0)}</span>
+                   </div>
+                   <div className="min-w-0">
+                     <h4 className="text-xs font-bold text-slate-200 truncate">{currentUser.name}</h4>
+                     <p className="text-[10px] text-slate-400 capitalize truncate">{currentUser.role.replace('_', ' ')}</p>
+                   </div>
+                 </div>
+                 <button 
+                   onClick={handleLogout}
+                   className="w-full py-2 bg-black/40 hover:bg-black/60 border border-white/5 rounded-lg text-xs font-bold text-slate-400 hover:text-white transition-colors cursor-pointer"
+                 >
+                   Sign Out
+                 </button>
+               </div>
+             ) : (
+               <div className="flex flex-col items-center gap-2 mb-2">
+                 <div 
+                   className="w-9 h-9 rounded-full bg-[#FC7133]/20 flex items-center justify-center border border-[#FC7133]/30 cursor-default"
+                   title={`${currentUser.name} (${currentUser.role.replace('_', ' ')})`}
+                 >
                    <span className="text-xs font-black text-[#FC7133]">{currentUser.name.charAt(0)}</span>
                  </div>
-                 <div className="min-w-0">
-                   <h4 className="text-xs font-bold text-slate-200 truncate">{currentUser.name}</h4>
-                   <p className="text-[10px] text-slate-400 capitalize truncate">{currentUser.role.replace('_', ' ')}</p>
-                 </div>
+                 <button 
+                   onClick={handleLogout}
+                   title="Sign Out"
+                   className="p-2 bg-black/40 hover:bg-rose-500/20 hover:text-rose-400 border border-white/5 rounded-xl text-slate-400 transition-colors cursor-pointer"
+                 >
+                   <LogOut className="w-4 h-4" />
+                 </button>
                </div>
-               <button 
-                 onClick={handleLogout}
-                 className="w-full py-2 bg-black/40 hover:bg-black/60 border border-white/5 rounded-lg text-xs font-bold text-slate-400 hover:text-white transition-colors"
-               >
-                 Sign Out
-               </button>
-             </div>
+             )}
            </div>
         </div>
       </aside>
@@ -3518,6 +3589,15 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
                                 <div>
                                   <code>developers.cloudflare.com</code> is the documentation link from the banner.
                                   In your Linux terminal, copy the assigned tunnel link shown directly below that banner: <code>https://&lt;subdomain&gt;.trycloudflare.com</code>.
+                                </div>
+                              </div>
+                            )}
+                            {customAiEndpoint && (customAiEndpoint.includes('192.168.') || customAiEndpoint.includes('10.') || customAiEndpoint.includes('127.0.0.1')) && typeof window !== 'undefined' && window.location.protocol === 'https:' && (
+                              <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl text-xs text-amber-300 space-y-1 mt-2">
+                                <div className="font-bold">Notice: Local LAN IP on Cloud Deployment</div>
+                                <div>
+                                  You are accessing Learn Overseas on Netlify Cloud (HTTPS). Netlify cloud servers cannot reach local office network IPs like <code>{customAiEndpoint}</code>.
+                                  To connect your Linux AI server to Netlify, run Cloudflare Tunnel on your Linux server (<code>cloudflared tunnel --url http://127.0.0.1:11434</code>) and paste the assigned public <code>https://&lt;subdomain&gt;.trycloudflare.com</code> URL here.
                                 </div>
                               </div>
                             )}
