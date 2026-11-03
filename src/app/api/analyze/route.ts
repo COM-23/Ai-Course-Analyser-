@@ -1581,6 +1581,8 @@ Student: ${extractedName}${contactInfo ? ` | Contact: ${contactInfo}` : ''} | Go
 
             if (!isCloudEnv) {
                 rawCandidates.push(
+                    'http://192.168.0.80:11434/api/generate',
+                    'http://192.168.0.80:11435/api/generate',
                     'http://192.168.0.66:11435/api/generate',
                     'http://192.168.0.66:11434/api/generate',
                     'http://192.168.0.76:11434/api/generate',
