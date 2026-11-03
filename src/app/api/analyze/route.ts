@@ -619,6 +619,8 @@ class LocalHeuristicBrain {
       (typeof process.cwd === 'function' && process.cwd().startsWith('/var/task'))
     );
 
+    let activeAiEndpoint = '';
+
     // Always prefix the manually entered context (budget) with "Budget:" so the regex engine reliably finds it
     const labelledContext = context ? `Budget: ${context.trim()}` : "";
     const rawData = text + " " + labelledContext;
@@ -1995,6 +1997,7 @@ Student: ${extractedName}${contactInfo ? ` | Contact: ${contactInfo}` : ''} | Go
             }
 
             const candidateEndpoints = rawCandidates.filter((v, i, a) => a.indexOf(v) === i);
+            activeAiEndpoint = candidateEndpoints[0] || '';
 
             if (candidateEndpoints.length === 0) {
                 throw new Error("On-premise AI offline or unconfigured");
@@ -2008,12 +2011,12 @@ Student: ${extractedName}${contactInfo ? ` | Contact: ${contactInfo}` : ''} | Go
             }
 
             // Synchronous inference timeout:
-            // Netlify maximum function execution timeout is 26s (configured in netlify.toml).
-            // Allow up to 24 seconds for Ollama inference on Cloud, 120 seconds on on-premise local servers.
-            const timeoutMs = isCloudEnv ? 24000 : 120000;
-            // 220 tokens generates the 130-150 token structured report with full safety margin
-            const tokenLimit = 220;
-            const overallDeadline = Date.now() + (isCloudEnv ? 24000 : 120000);
+            // Capped at 9.2s for cloud serverless to ensure response returns before Netlify proxy drops connection with 502
+            // Local on-premise servers (Windows / Mac / Linux) allow 120 seconds.
+            const timeoutMs = isCloudEnv ? 9200 : 120000;
+            // 150 tokens generates the 110-130 token structured report in ~6-7 seconds on CPU
+            const tokenLimit = 150;
+            const overallDeadline = Date.now() + (isCloudEnv ? 9200 : 120000);
 
             let ollamaResponse: Response | null = null;
             let lastAiError: any = null;
@@ -2267,7 +2270,7 @@ Here is the 3-part report for [Student Name]:
         });
         result.isAiGenerated = false;
         result.aiError = isCloudEnv 
-            ? "Cloud inference timeout (>24s)" 
+            ? "Cloud inference deferred to client tunnel (9s serverless limit)" 
             : (e?.message || "Execution timeout");
     }
 
@@ -2278,6 +2281,10 @@ Here is the 3-part report for [Student Name]:
     }
     if (existingNotes) {
         result.studentSummary += "\n\n" + existingNotes;
+    }
+
+    if (activeAiEndpoint) {
+        (result as any).aiEndpoint = activeAiEndpoint;
     }
 
     return result;
