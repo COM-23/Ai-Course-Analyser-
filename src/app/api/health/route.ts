@@ -90,7 +90,7 @@ export async function GET(req: Request) {
   // 5. Default fallback to active live Cloudflare tunnel or local LAN
   if (!configuredEndpoint) {
     configuredEndpoint = isCloudEnv
-      ? 'https://discussion-mile-campaign-statistics.trycloudflare.com/api/generate'
+      ? 'https://garmin-emotions-insured-dual.trycloudflare.com/api/generate'
       : 'http://192.168.0.80:11434/api/generate';
   }
 
@@ -101,7 +101,7 @@ export async function GET(req: Request) {
     configuredEndpoint.includes('millions-librarian-consumer-desktops')
   )) {
     configuredEndpoint = isCloudEnv
-      ? 'https://discussion-mile-campaign-statistics.trycloudflare.com/api/generate'
+      ? 'https://garmin-emotions-insured-dual.trycloudflare.com/api/generate'
       : 'http://192.168.0.80:11434/api/generate';
   }
 
@@ -172,8 +172,8 @@ export async function GET(req: Request) {
   const candidateEndpoints = (isCloudEnv
     ? [
         ...configuredVariants,
-        'https://discussion-mile-campaign-statistics.trycloudflare.com/api/generate',
-        'https://orientation-humanities-inc-leg.trycloudflare.com/api/generate'
+        'https://garmin-emotions-insured-dual.trycloudflare.com/api/generate',
+        'https://discussion-mile-campaign-statistics.trycloudflare.com/api/generate'
       ].filter(Boolean)
     : [
         'http://127.0.0.1:11434/api/generate',

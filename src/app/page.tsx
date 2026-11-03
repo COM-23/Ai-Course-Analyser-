@@ -696,7 +696,7 @@ export default function Home() {
 
       const defaultEp = isLocalHost
         ? "http://192.168.0.80:11434/api/generate"
-        : "https://discussion-mile-campaign-statistics.trycloudflare.com/api/generate";
+        : "https://garmin-emotions-insured-dual.trycloudflare.com/api/generate";
 
       if (savedEndpoint) {
         setCustomAiEndpoint(cleanAndNormalizeAiUrl(savedEndpoint));
@@ -840,7 +840,7 @@ export default function Home() {
       );
       ep = isLocal
         ? 'http://192.168.0.80:11434/api/generate'
-        : 'https://discussion-mile-campaign-statistics.trycloudflare.com/api/generate';
+        : 'https://garmin-emotions-insured-dual.trycloudflare.com/api/generate';
     }
 
     let targetUrl = cleanAndNormalizeAiUrl(ep);
@@ -1154,7 +1154,7 @@ ${chatUser}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`;
           );
           const defaultEp = isLocal
             ? "http://192.168.0.80:11434/api/generate"
-            : "https://discussion-mile-campaign-statistics.trycloudflare.com/api/generate";
+            : "https://garmin-emotions-insured-dual.trycloudflare.com/api/generate";
           const epToUse = (data.aiEndpoint && !data.aiEndpoint.includes('entrepreneurs-psp-navigate-maternity') && !data.aiEndpoint.includes('your-tunnel-subdomain') && !data.aiEndpoint.includes('millions-librarian-consumer-desktops') && !data.aiEndpoint.includes('developers.cloudflare.com'))
             ? data.aiEndpoint
             : (localEp || defaultEp);
@@ -1504,7 +1504,7 @@ ${chatUser}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`;
 
       // Dual-Failsafe: If Netlify returned Tier 3 fallback due to serverless gateway cutoff,
       // and we have an active on-premise tunnel endpoint, seamlessly finish genuine AI generation from browser!
-      const directEp = (customAiEndpoint || (data as any)?.aiEndpoint || (typeof window !== 'undefined' ? localStorage.getItem('learn_overseas_custom_ai_endpoint') || '' : '') || 'https://discussion-mile-campaign-statistics.trycloudflare.com/api/generate').trim();
+      const directEp = (customAiEndpoint || (data as any)?.aiEndpoint || (typeof window !== 'undefined' ? localStorage.getItem('learn_overseas_custom_ai_endpoint') || '' : '') || 'https://garmin-emotions-insured-dual.trycloudflare.com/api/generate').trim();
       if (!data.isAiGenerated && directEp && !directEp.includes('millions-librarian-consumer-desktops') && !directEp.includes('entrepreneurs-psp-navigate-maternity') && !directEp.includes('your-tunnel-subdomain') && !directEp.includes('developers.cloudflare.com')) {
         generateAiSummaryDirectly(data, directEp);
       } 
@@ -1656,7 +1656,7 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
           body: JSON.stringify(studentWithComparison)
         }).catch(() => {});
 
-        const directEp = (customAiEndpoint || (studentWithComparison as any)?.aiEndpoint || (typeof window !== 'undefined' ? localStorage.getItem('learn_overseas_custom_ai_endpoint') || '' : '') || 'https://discussion-mile-campaign-statistics.trycloudflare.com/api/generate').trim();
+        const directEp = (customAiEndpoint || (studentWithComparison as any)?.aiEndpoint || (typeof window !== 'undefined' ? localStorage.getItem('learn_overseas_custom_ai_endpoint') || '' : '') || 'https://garmin-emotions-insured-dual.trycloudflare.com/api/generate').trim();
         if (!studentWithComparison.isAiGenerated && directEp && !directEp.includes('millions-librarian-consumer-desktops') && !directEp.includes('entrepreneurs-psp-navigate-maternity') && !directEp.includes('your-tunnel-subdomain') && !directEp.includes('developers.cloudflare.com')) {
           generateAiSummaryDirectly(studentWithComparison, directEp);
         }

@@ -1983,8 +1983,8 @@ Student: ${extractedName}${contactInfo ? ` | Contact: ${contactInfo}` : ''} | Go
                 dbEndpoint,
                 fileStatusEndpoint,
                 envEndpoint,
-                'https://discussion-mile-campaign-statistics.trycloudflare.com/api/generate',
-                'https://orientation-humanities-inc-leg.trycloudflare.com/api/generate'
+                'https://garmin-emotions-insured-dual.trycloudflare.com/api/generate',
+                'https://discussion-mile-campaign-statistics.trycloudflare.com/api/generate'
             ].filter(Boolean)
              .map((s: string) => cleanAndNormalizeUrl(String(s).trim()))
              .filter((s: string) => s && !s.includes('entrepreneurs-psp-navigate-maternity') && !s.includes('your-tunnel-subdomain') && !s.includes('millions-librarian-consumer-desktops') && !s.includes('developers.cloudflare.com'));
