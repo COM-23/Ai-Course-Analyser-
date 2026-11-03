@@ -54,7 +54,7 @@ body {
    while preserving sharp, balanced layout on all monitors.
    ======================================================== */
 html {
-  font-size: 13.5px;
+  font-size: 13px;
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
 }

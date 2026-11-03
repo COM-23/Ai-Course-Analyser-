@@ -385,7 +385,7 @@ export default function Home() {
   const [settingsTab, setSettingsTab] = useState<"users" | "security" | "preferences" | "database">("users");
   
   // Global Interface Zoom Scaling (Permanent User Preference)
-  const [uiZoom, setUiZoom] = useState<number>(90);
+  const [uiZoom, setUiZoom] = useState<number>(85);
 
   useEffect(() => {
     try {
@@ -398,9 +398,9 @@ export default function Home() {
           return;
         }
       }
-      // Default to 90% for balanced laptop & desktop viewing
-      setUiZoom(90);
-      document.documentElement.style.zoom = '90%';
+      // Default to 85% for balanced, sleek laptop & desktop viewing
+      setUiZoom(85);
+      document.documentElement.style.zoom = '85%';
     } catch (e) {}
   }, []);
 
@@ -1764,9 +1764,9 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
           </button>
           <button
             type="button"
-            onClick={() => handleZoomChange(90)}
+            onClick={() => handleZoomChange(85)}
             className="text-[11px] font-mono font-bold px-1.5 text-slate-400 hover:text-white cursor-pointer select-none"
-            title="Reset to 90% (Recommended)"
+            title="Reset to 85% (Recommended)"
           >
             {uiZoom}%
           </button>
@@ -1884,9 +1884,9 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
               </button>
               <button
                 type="button"
-                onClick={() => handleZoomChange(90)}
+                onClick={() => handleZoomChange(85)}
                 className="text-[10px] font-mono font-bold px-1 text-slate-400 hover:text-white cursor-pointer select-none"
-                title="Reset zoom to 90%"
+                title="Reset zoom to 85%"
               >
                 {uiZoom}%
               </button>
@@ -3559,14 +3559,14 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
                         </span>
                       </div>
                       <p className="text-xs text-slate-400">
-                        Customize interface density to fit your laptop or desktop display perfectly. If elements look oversized on Windows 125%-150% scaling, 85% or 90% is recommended.
+                        Customize interface density to fit your laptop or desktop display perfectly. If elements look oversized on Windows 125%-150% scaling, 80% or 85% is recommended.
                       </p>
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
                         {[
                           { label: "75%", val: 75, desc: "Ultra Compact" },
-                          { label: "85%", val: 85, desc: "Compact" },
-                          { label: "90%", val: 90, desc: "Balanced (Default)" },
-                          { label: "100%", val: 100, desc: "Standard" },
+                          { label: "80%", val: 80, desc: "Compact" },
+                          { label: "85%", val: 85, desc: "Balanced (Default)" },
+                          { label: "95%", val: 95, desc: "Standard" },
                         ].map((preset) => (
                           <button
                             key={preset.val}
@@ -3596,10 +3596,10 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
                           </button>
                           <button
                             type="button"
-                            onClick={() => handleZoomChange(90)}
+                            onClick={() => handleZoomChange(85)}
                             className="px-3 py-1.5 bg-[#FC7133]/10 hover:bg-[#FC7133]/20 border border-[#FC7133]/30 rounded-lg text-xs font-bold text-[#FC7133] cursor-pointer transition-colors"
                           >
-                            Reset to Default (90%)
+                            Reset to Default (85%)
                           </button>
                           <button
                             type="button"

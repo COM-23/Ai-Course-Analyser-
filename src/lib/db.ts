@@ -417,7 +417,9 @@ function createPureJsDatabase(storagePath: string): DatabaseAdapter {
     }];
   }
 
+  let inTransaction = false;
   const persist = () => {
+    if (inTransaction) return;
     try {
       fs.writeFileSync(storagePath, JSON.stringify(memoryData, null, 2));
     } catch (e) {
@@ -428,7 +430,20 @@ function createPureJsDatabase(storagePath: string): DatabaseAdapter {
   return {
     exec: (sql: string) => {},
     pragma: (p: string) => {},
-    transaction: (fn: any) => (((...args: any[]) => fn(...args)) as any),
+    transaction: (fn: any) => {
+      return ((...args: any[]) => {
+        inTransaction = true;
+        try {
+          const result = fn(...args);
+          inTransaction = false;
+          persist();
+          return result;
+        } catch (err) {
+          inTransaction = false;
+          throw err;
+        }
+      }) as any;
+    },
     prepare: (sql: string) => {
       const trimmed = sql.trim();
       const upper = trimmed.toUpperCase();
@@ -445,24 +460,40 @@ function createPureJsDatabase(storagePath: string): DatabaseAdapter {
           if (upper.includes('SELECT COUNT(*) AS COUNT FROM UNIVERSITIES')) {
             return { count: memoryData.universities.length };
           }
-          if (upper.includes('FROM SETTINGS WHERE ID = ?')) {
-            const id = params[0];
-            return memoryData.settings.find((x: any) => x.id === id);
+          if (upper.includes('FROM STUDENTS') && (upper.includes('COUNT(*)') || upper.includes('COUNT (*)'))) {
+            return { count: memoryData.students.length };
           }
-          if (upper.includes("WHERE ID = 'AISTRICTNESS'")) {
-            return memoryData.settings.find((x: any) => x.id === 'aiStrictness');
+          if (upper.includes('FROM SETTINGS')) {
+            let targetId: string | null = null;
+            const matchLit = trimmed.match(/id\s*=\s*['"]([^'"]+)['"]/i);
+            if (matchLit) {
+              targetId = matchLit[1];
+            } else if (upper.includes('WHERE ID = ?') && params.length > 0) {
+              targetId = String(params[0]);
+            }
+            if (targetId) {
+              const s = memoryData.settings.find((x: any) => String(x.id).toLowerCase() === targetId!.toLowerCase());
+              if (s) {
+                return { id: s.id, value: typeof s.value === 'string' ? s.value : JSON.stringify(s.value) };
+              }
+              return undefined;
+            }
           }
           if (upper.includes('FROM STUDENTS') && (upper.includes('JSON_EXTRACT') || upper.includes('NAME') || upper.includes('EMAIL'))) {
             const valToFind = String(params[0] || '').toLowerCase().trim();
-            const counselorId = params[1] ? Number(params[1]) : 1;
+            const hasCidInQuery = upper.includes('COUNSELOR_ID = ?') || upper.includes('COUNSELOR_ID=?');
+            const counselorId = hasCidInQuery && params.length > 1 ? Number(params[1]) : null;
             const isEmailQuery = upper.includes('EMAIL');
             return memoryData.students.find((s: any) => {
               try {
                 const details = typeof s.studentDetails === 'string' ? JSON.parse(s.studentDetails) : s.studentDetails;
                 const fieldVal = isEmailQuery ? String(details?.email || '').toLowerCase().trim() : String(details?.name || '').toLowerCase().trim();
                 const matchVal = fieldVal === valToFind;
-                const matchCid = Number(s.counselor_id) === counselorId;
-                return matchVal && matchCid;
+                if (!matchVal) return false;
+                if (counselorId !== null) {
+                  return Number(s.counselor_id) === counselorId;
+                }
+                return true;
               } catch {
                 return false;
               }
@@ -470,10 +501,7 @@ function createPureJsDatabase(storagePath: string): DatabaseAdapter {
           }
           if (upper.includes('SELECT COMPARISONDATA FROM STUDENTS WHERE ID = ?')) {
             const id = Number(params[0]);
-            let s = memoryData.students.find((x: any) => Number(x.id) === id);
-            if (!s && memoryData.students.length > 0) {
-              s = memoryData.students[0];
-            }
+            const s = memoryData.students.find((x: any) => Number(x.id) === id);
             if (!s) return undefined;
             const comp = typeof s.comparisonData === 'string' ? s.comparisonData : JSON.stringify(s.comparisonData || []);
             return { comparisonData: comp };
@@ -550,11 +578,20 @@ function createPureJsDatabase(storagePath: string): DatabaseAdapter {
             return { changes: 1, lastInsertRowid: newUser.id };
           }
           if (upper.includes('UPDATE USERS SET FAILEDLOGINATTEMPTS')) {
-            const id = params[2];
-            const u = memoryData.users.find((x: any) => x.id === Number(id));
+            let userId: number;
+            let attempts = 0;
+            let lockout: any = null;
+            if (params.length === 1) {
+              userId = Number(params[0]);
+            } else {
+              attempts = Number(params[0]) || 0;
+              lockout = params[1] || null;
+              userId = Number(params[2]);
+            }
+            const u = memoryData.users.find((x: any) => Number(x.id) === userId);
             if (u) {
-              u.failedLoginAttempts = params[0];
-              u.lockoutUntil = params[1];
+              u.failedLoginAttempts = attempts;
+              u.lockoutUntil = lockout;
               persist();
             }
             return { changes: 1, lastInsertRowid: 0 };
@@ -567,14 +604,25 @@ function createPureJsDatabase(storagePath: string): DatabaseAdapter {
             }
             return { changes: 1, lastInsertRowid: 0 };
           }
-          if (upper.startsWith('INSERT INTO SETTINGS')) {
+          if (upper.includes('INTO SETTINGS') || upper.startsWith('UPDATE SETTINGS')) {
             const key = params[0];
             const val = params[1];
-            const idx = memoryData.settings.findIndex((x: any) => x.id === key);
+            const idx = memoryData.settings.findIndex((x: any) => String(x.id).toLowerCase() === String(key).toLowerCase());
             if (idx >= 0) memoryData.settings[idx].value = val;
             else memoryData.settings.push({ id: key, value: val });
             persist();
             return { changes: 1, lastInsertRowid: 0 };
+          }
+          if (upper.startsWith('DELETE FROM SETTINGS')) {
+            let targetId: string | null = null;
+            const matchLit = trimmed.match(/id\s*=\s*['"]([^'"]+)['"]/i);
+            if (matchLit) targetId = matchLit[1];
+            else if (params.length > 0) targetId = String(params[0]);
+            if (targetId) {
+              memoryData.settings = memoryData.settings.filter((x: any) => String(x.id).toLowerCase() !== targetId!.toLowerCase());
+              persist();
+              return { changes: 1, lastInsertRowid: 0 };
+            }
           }
           if (upper.startsWith('INSERT INTO STUDENTS')) {
             const hasIdParam = upper.includes('(ID,') || upper.includes('(ID ,');
@@ -651,10 +699,7 @@ function createPureJsDatabase(storagePath: string): DatabaseAdapter {
           if (upper.includes('UPDATE STUDENTS SET') && upper.includes('COMPARISONDATA = ?')) {
             const compareJson = params[0];
             const targetId = Number(params[1]);
-            let target = memoryData.students.find((s: any) => Number(s.id) === targetId);
-            if (!target && memoryData.students.length > 0) {
-              target = memoryData.students[0];
-            }
+            const target = memoryData.students.find((s: any) => Number(s.id) === targetId);
             if (target) {
               target.comparisonData = typeof compareJson === 'string' ? compareJson : JSON.stringify(compareJson);
               target.createdAt = new Date().toISOString();
