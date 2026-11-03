@@ -2017,8 +2017,8 @@ Student: ${extractedName}${contactInfo ? ` | Contact: ${contactInfo}` : ''} | Go
             // Capped at 8.5s for cloud serverless to ensure response returns cleanly before Netlify drops connection with 502
             // Local on-premise servers (Windows / Mac / Linux) allow 120 seconds.
             const timeoutMs = isCloudEnv ? 8500 : 120000;
-            // 55 tokens generates a crisp 3-part structured summary in ~6-7s on CPU
-            const tokenLimit = isCloudEnv ? 55 : 100;
+            // 42 tokens generates a crisp 3-part structured summary in ~5.2s on CPU
+            const tokenLimit = isCloudEnv ? 42 : 100;
             const overallDeadline = Date.now() + (isCloudEnv ? 8500 : 120000);
 
             let ollamaResponse: Response | null = null;
@@ -2063,7 +2063,7 @@ Student: ${extractedName}${contactInfo ? ` | Contact: ${contactInfo}` : ''} | Go
                                     { role: 'user', content: chatUserPrompt }
                                 ],
                                 stream: false,
-                                keep_alive: "60m",
+                                keep_alive: "24h",
                                 options: {
                                     num_predict: tokenLimit,
                                     temperature: 0.1
@@ -2090,7 +2090,7 @@ Student: ${extractedName}${contactInfo ? ` | Contact: ${contactInfo}` : ''} | Go
                                         { role: 'user', content: chatUserPrompt }
                                     ],
                                     stream: false,
-                                    keep_alive: "60m",
+                                    keep_alive: "24h",
                                     options: { num_predict: tokenLimit, temperature: 0.1 }
                                 }),
                                 signal: AbortSignal.timeout(Math.min(currentTimeout, Math.max(1000, overallDeadline - Date.now())))
@@ -2111,7 +2111,7 @@ Student: ${extractedName}${contactInfo ? ` | Contact: ${contactInfo}` : ''} | Go
                                 model: modelToUse,
                                 prompt: prompt,
                                 stream: false,
-                                keep_alive: "60m",
+                                keep_alive: "24h",
                                 options: {
                                     num_predict: tokenLimit,
                                     temperature: 0.1
@@ -2134,7 +2134,7 @@ Student: ${extractedName}${contactInfo ? ` | Contact: ${contactInfo}` : ''} | Go
                                         model: modelToUse,
                                         prompt: prompt,
                                         stream: false,
-                                        keep_alive: "60m",
+                                        keep_alive: "24h",
                                         options: {
                                             num_predict: tokenLimit,
                                             temperature: 0.1
@@ -2171,7 +2171,7 @@ Student: ${extractedName}${contactInfo ? ` | Contact: ${contactInfo}` : ''} | Go
                                             { role: 'user', content: chatUserPrompt }
                                         ],
                                         stream: false,
-                                        keep_alive: "60m",
+                                        keep_alive: "24h",
                                         options: { num_predict: tokenLimit, temperature: 0.1 }
                                     }),
                                     signal: AbortSignal.timeout(Math.min(currentTimeout, Math.max(1000, overallDeadline - Date.now())))

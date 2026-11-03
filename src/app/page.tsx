@@ -2635,7 +2635,7 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
                                 className="text-[10px] bg-amber-500/10 text-amber-300 border border-amber-500/20 px-2 py-0.5 rounded-full font-medium"
                                 title={res.aiError ? `Fallback reason: ${res.aiError}` : 'Heuristic evaluation'}
                               >
-                                ⚡ Heuristic Assessment {res.aiError ? `(${res.aiError.toLowerCase().includes('limit') || res.aiError.toLowerCase().includes('abort') || res.aiError.toLowerCase().includes('timeout') ? 'Cloud limit' : res.aiError.slice(0, 24)})` : ''}
+                                ⚡ Heuristic Assessment
                               </span>
                               <button
                                 type="button"

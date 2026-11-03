@@ -240,6 +240,25 @@ async function sendHeartbeat() {
     consecutiveFailures++;
   }
 
+  // Keep Ollama model permanently warm in memory to eliminate cold-load latency
+  try {
+    const warmPayload = JSON.stringify({ model: 'llama3.1:latest', keep_alive: '24h' });
+    const warmReq = http.request({
+      hostname: '127.0.0.1',
+      port: 11434,
+      path: '/api/generate',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(warmPayload)
+      },
+      timeout: 3000
+    }, () => {});
+    warmReq.on('error', () => {});
+    warmReq.write(warmPayload);
+    warmReq.end();
+  } catch (e) {}
+
   // If 4 consecutive failures occurred (~2 minutes of broken connection), recycle the tunnel
   if (consecutiveFailures >= 4) {
     console.warn('[Keep-Alive] Tunnel appears unresponsive or severed. Recycling tunnel process...');
