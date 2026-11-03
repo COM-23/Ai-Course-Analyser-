@@ -12,3 +12,6 @@
   SECRETS_SCAN_ENABLED = "false"
   LOCAL_AI_API_KEY = "lo_live_qDYoGoQFKz7bM35ijtVa-9BwznoFZhqO"
   LOCAL_AI_MODEL = "llama3.1:latest"
+
+[functions]
+  included_files = ["students.db.gz", "src/lib/db-seed.json"]

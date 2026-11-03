@@ -1990,9 +1990,9 @@ Student: ${extractedName}${contactInfo ? ` | Contact: ${contactInfo}` : ''} | Go
                 aiApiKey = cloudDefaultApiKey;
             }
 
-            // Cloud serverless timeout allowed up to 22s so Ollama finishes inference cleanly without aborting
+            // Cloud serverless timeout strictly set to 7.5s so Netlify's 10s proxy never drops connection with 502
             // Local on-premise servers (Windows / Mac / Linux) allow 120 seconds.
-            const timeoutMs = isCloudEnv ? 22000 : 120000;
+            const timeoutMs = isCloudEnv ? 7500 : 120000;
             // 350 tokens ensures all 3 sections complete fully without premature cutoff
             const tokenLimit = 350;
 

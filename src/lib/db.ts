@@ -108,48 +108,58 @@ export function getDb(): DatabaseAdapter {
     } catch (e) {}
   }
 
+  let nodeSqliteLoaded = false;
   if (nodeSqliteClass) {
-    const rawDb = new nodeSqliteClass(dbPath);
-    db = {
-      exec: (sql: string) => rawDb.exec(sql),
-      prepare: (sql: string) => {
-        const stmt = rawDb.prepare(sql);
-        return {
-          get: (...args: any[]) => stmt.get(...args),
-          all: (...args: any[]) => stmt.all(...args),
-          run: (...args: any[]) => stmt.run(...args),
-        };
-      },
-      transaction: (fn: any) => {
-        return ((...args: any[]) => {
-          rawDb.exec('BEGIN IMMEDIATE');
-          try {
-            const res = fn(...args);
-            rawDb.exec('COMMIT');
-            return res;
-          } catch (err) {
-            rawDb.exec('ROLLBACK');
-            throw err;
-          }
-        }) as any;
-      },
-      pragma: (p: string) => {
-        try { rawDb.exec(`PRAGMA ${p};`); } catch (e) {}
-      }
-    };
-  } else {
-    // 2. Try better-sqlite3 fallback
-    let betterLoaded = false;
     try {
-      const dynamicRequire = typeof __non_webpack_require__ !== 'undefined' ? __non_webpack_require__ : eval('require');
-      const BetterSqlite = dynamicRequire('better-sqlite3');
-      const rawDb = new BetterSqlite(dbPath);
-      try { rawDb.pragma('journal_mode = WAL'); } catch (e) {}
-      try { rawDb.pragma('busy_timeout = 5000'); } catch (e) {}
-      db = rawDb;
-      betterLoaded = true;
+      const rawDb = new nodeSqliteClass(dbPath);
+      db = {
+        exec: (sql: string) => rawDb.exec(sql),
+        prepare: (sql: string) => {
+          const stmt = rawDb.prepare(sql);
+          return {
+            get: (...args: any[]) => stmt.get(...args),
+            all: (...args: any[]) => stmt.all(...args),
+            run: (...args: any[]) => stmt.run(...args),
+          };
+        },
+        transaction: (fn: any) => {
+          return ((...args: any[]) => {
+            rawDb.exec('BEGIN IMMEDIATE');
+            try {
+              const res = fn(...args);
+              rawDb.exec('COMMIT');
+              return res;
+            } catch (err) {
+              rawDb.exec('ROLLBACK');
+              throw err;
+            }
+          }) as any;
+        },
+        pragma: (p: string) => {
+          try { rawDb.exec(`PRAGMA ${p};`); } catch (e) {}
+        }
+      };
+      nodeSqliteLoaded = true;
     } catch (e: any) {
-      console.warn("[DB] Native C++ bindings unavailable. Switching to Pure-JS Embedded Engine.");
+      console.warn("[DB] node:sqlite could not open dbPath, falling back safely:", e?.message);
+    }
+  }
+
+  if (!nodeSqliteLoaded) {
+    // 2. Try better-sqlite3 fallback (only on native server/local environments, NEVER on serverless to prevent SIGSEGV)
+    let betterLoaded = false;
+    if (!isServerless) {
+      try {
+        const dynamicRequire = typeof __non_webpack_require__ !== 'undefined' ? __non_webpack_require__ : eval('require');
+        const BetterSqlite = dynamicRequire('better-sqlite3');
+        const rawDb = new BetterSqlite(dbPath);
+        try { rawDb.pragma('journal_mode = WAL'); } catch (e) {}
+        try { rawDb.pragma('busy_timeout = 5000'); } catch (e) {}
+        db = rawDb;
+        betterLoaded = true;
+      } catch (e: any) {
+        console.warn("[DB] Native C++ bindings unavailable. Switching to Pure-JS Embedded Engine.");
+      }
     }
 
     if (!betterLoaded) {
