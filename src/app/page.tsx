@@ -646,6 +646,14 @@ export default function Home() {
       }
     }
     str = str.replace(/\/+$/, '');
+    try {
+      const u = new URL(str);
+      if (!u.port && (u.hostname.startsWith('192.168.') || u.hostname.startsWith('10.') || u.hostname === '127.0.0.1' || u.hostname === 'localhost')) {
+        u.port = '11434';
+        str = u.toString().replace(/\/+$/, '');
+      }
+    } catch (e) {}
+
     // Clean trailing /api/generate, /api/chat, or /api so we always build on clean origin
     str = str.replace(/\/api\/generate\/?$/, '').replace(/\/api\/chat\/?$/, '').replace(/\/api\/?$/, '').replace(/\/+$/, '');
     return str + '/api/generate';
@@ -791,7 +799,7 @@ ${chatUser}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`;
             stream: false,
             keep_alive: "60m",
             options: {
-              num_predict: 45,
+              num_predict: 200,
               temperature: 0.1
             }
           }),
@@ -815,7 +823,7 @@ ${chatUser}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`;
               ],
               stream: false,
               keep_alive: "60m",
-              options: { num_predict: 45, temperature: 0.1 }
+              options: { num_predict: 200, temperature: 0.1 }
             }),
             signal: AbortSignal.timeout(90000)
           });
@@ -837,7 +845,7 @@ ${chatUser}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`;
               prompt: directPrompt,
               stream: false,
               keep_alive: "60m",
-              options: { num_predict: 45, temperature: 0.1 }
+              options: { num_predict: 200, temperature: 0.1 }
             }),
             signal: AbortSignal.timeout(90000)
           });
@@ -866,7 +874,7 @@ ${chatUser}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`;
                 ],
                 stream: false,
                 keep_alive: "60m",
-                options: { num_predict: 45, temperature: 0.1 }
+                options: { num_predict: 200, temperature: 0.1 }
               }),
               signal: AbortSignal.timeout(90000)
             });
@@ -889,6 +897,7 @@ ${chatUser}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`;
               ...prev,
               studentSummary: freshSummary,
               isAiGenerated: true,
+              aiError: undefined,
               aiModelUsed: usedModel
             };
           });
@@ -897,10 +906,10 @@ ${chatUser}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`;
           setHistory(prev => {
             const updated = prev.map(s => {
               if (s.id && studentTarget.id && s.id === studentTarget.id) {
-                return { ...s, studentSummary: freshSummary, isAiGenerated: true };
+                return { ...s, studentSummary: freshSummary, isAiGenerated: true, aiError: undefined };
               }
               if (s.studentDetails?.name === sName) {
-                return { ...s, studentSummary: freshSummary, isAiGenerated: true };
+                return { ...s, studentSummary: freshSummary, isAiGenerated: true, aiError: undefined };
               }
               return s;
             });
@@ -2548,7 +2557,7 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
                                 className="text-[10px] bg-amber-500/10 text-amber-300 border border-amber-500/20 px-2 py-0.5 rounded-full font-medium"
                                 title={res.aiError ? `Fallback reason: ${res.aiError}` : 'Heuristic evaluation'}
                               >
-                                ⚡ Heuristic Assessment {res.aiError ? `(${res.aiError.slice(0, 24)})` : ''}
+                                ⚡ Heuristic Assessment {res.aiError ? `(${res.aiError.toLowerCase().includes('limit') || res.aiError.toLowerCase().includes('abort') || res.aiError.toLowerCase().includes('timeout') ? 'Cloud limit' : res.aiError.slice(0, 24)})` : ''}
                               </span>
                               <button
                                 type="button"

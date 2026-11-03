@@ -1912,8 +1912,16 @@ Student: ${extractedName}${contactInfo ? ` | Contact: ${contactInfo}` : ''} | Go
                     }
                 }
                 str = str.replace(/\/+$/, '');
+                try {
+                    const u = new URL(str);
+                    if (!u.port && (u.hostname.startsWith('192.168.') || u.hostname.startsWith('10.') || u.hostname === '127.0.0.1' || u.hostname === 'localhost')) {
+                        u.port = '11434';
+                        str = u.toString().replace(/\/+$/, '');
+                    }
+                } catch (e) {}
+
                 if (!str.endsWith('/api/generate')) {
-                    str = str.replace(/\/api\/?$/, '');
+                    str = str.replace(/\/api\/chat\/?$/, '').replace(/\/api\/?$/, '');
                     str = str + '/api/generate';
                 }
                 return str;
@@ -1956,7 +1964,8 @@ Student: ${extractedName}${contactInfo ? ` | Contact: ${contactInfo}` : ''} | Go
                 ? customAiEndpoint
                 : '';
 
-            const rawCandidates = [
+            const rawCandidates: string[] = [];
+            const configuredList = [
                 sanitizedCustom,
                 dbEndpoint,
                 fileStatusEndpoint,
@@ -1965,15 +1974,23 @@ Student: ${extractedName}${contactInfo ? ` | Contact: ${contactInfo}` : ''} | Go
              .map((s: string) => cleanAndNormalizeUrl(String(s).trim()))
              .filter((s: string) => s && !s.includes('entrepreneurs-psp-navigate-maternity') && !s.includes('your-tunnel-subdomain') && !s.includes('millions-librarian-consumer-desktops') && !s.includes('developers.cloudflare.com'));
 
+            for (const c of configuredList) {
+                rawCandidates.push(c);
+                if (c.includes(':11435')) {
+                    rawCandidates.push(c.replace(':11435', ':11434'));
+                } else if (c.includes(':11434')) {
+                    rawCandidates.push(c.replace(':11434', ':11435'));
+                }
+            }
+
             if (!isCloudEnv) {
                 rawCandidates.push(
                     'http://192.168.0.80:11434/api/generate',
                     'http://192.168.0.80:11435/api/generate',
-                    'http://192.168.0.66:11435/api/generate',
                     'http://192.168.0.66:11434/api/generate',
-                    'http://192.168.0.76:11434/api/generate',
-                    'http://127.0.0.1:11435/api/generate',
-                    'http://127.0.0.1:11434/api/generate'
+                    'http://192.168.0.66:11435/api/generate',
+                    'http://127.0.0.1:11434/api/generate',
+                    'http://127.0.0.1:11435/api/generate'
                 );
             }
 
@@ -1990,11 +2007,12 @@ Student: ${extractedName}${contactInfo ? ` | Contact: ${contactInfo}` : ''} | Go
                 aiApiKey = cloudDefaultApiKey;
             }
 
-            // Cloud serverless timeout strictly set to 7.5s so Netlify's 10s proxy never drops connection with 502
+            // Cloud serverless timeout strictly set to 8.0s so Netlify's 10s proxy never drops connection with 502
             // Local on-premise servers (Windows / Mac / Linux) allow 120 seconds.
-            const timeoutMs = isCloudEnv ? 7500 : 120000;
-            // 350 tokens ensures all 3 sections complete fully without premature cutoff
-            const tokenLimit = 350;
+            const timeoutMs = isCloudEnv ? 8000 : 120000;
+            // 200 tokens generates the 130-150 token structured report in ~8-10 seconds on CPU
+            const tokenLimit = 200;
+            const overallDeadline = Date.now() + (isCloudEnv ? 8000 : 120000);
 
             let ollamaResponse: Response | null = null;
             let lastAiError: any = null;
@@ -2025,6 +2043,10 @@ Here is the 3-part report for [Student Name]:
             const chatUserPrompt = `Student: ${extractedName} | Goal: ${degreeObjective} in ${degreeDisplay} | CGPA: ${extractedCgpa}/10 | Budget: ${targetSymbol}${convertedBudget.toLocaleString('en-US', {maximumFractionDigits: 0})} | Destination: ${countryDisplay} | Intake: ${manualIntake} | Notes: ${cleanNotes}`;
 
             for (const targetUrl of candidateEndpoints) {
+                const remainingTime = overallDeadline - Date.now();
+                if (remainingTime <= 2000) break;
+                const currentTimeout = Math.min(timeoutMs, remainingTime);
+
                 try {
                     const baseUrl = targetUrl
                         .replace(/\/api\/generate\/?$/, '')
@@ -2061,7 +2083,7 @@ Here is the 3-part report for [Student Name]:
                                     temperature: 0.1
                                 }
                             }),
-                            signal: AbortSignal.timeout(timeoutMs)
+                            signal: AbortSignal.timeout(currentTimeout)
                         });
 
                         if (chatRes && chatRes.ok) {
@@ -2085,7 +2107,7 @@ Here is the 3-part report for [Student Name]:
                                     keep_alive: "60m",
                                     options: { num_predict: tokenLimit, temperature: 0.1 }
                                 }),
-                                signal: AbortSignal.timeout(timeoutMs)
+                                signal: AbortSignal.timeout(Math.min(currentTimeout, Math.max(1000, overallDeadline - Date.now())))
                             });
                             if (retryChat && retryChat.ok) {
                                 ollamaResponse = retryChat;
@@ -2095,6 +2117,7 @@ Here is the 3-part report for [Student Name]:
 
                     // 2. Fallback to /api/generate if /api/chat did not succeed
                     if (!ollamaResponse || !ollamaResponse.ok) {
+                        const genRemaining = Math.max(1000, overallDeadline - Date.now());
                         ollamaResponse = await fetch(`${baseUrl}/api/generate`, {
                             method: 'POST',
                             headers,
@@ -2108,7 +2131,7 @@ Here is the 3-part report for [Student Name]:
                                     temperature: 0.1
                                 }
                             }),
-                            signal: AbortSignal.timeout(timeoutMs)
+                            signal: AbortSignal.timeout(Math.min(currentTimeout, genRemaining))
                         });
 
                         // If 401 or 403, retry with verified on-premise gateway secret key
@@ -2131,7 +2154,7 @@ Here is the 3-part report for [Student Name]:
                                             temperature: 0.1
                                         }
                                     }),
-                                    signal: AbortSignal.timeout(timeoutMs)
+                                    signal: AbortSignal.timeout(Math.min(currentTimeout, Math.max(1000, overallDeadline - Date.now())))
                                 });
                                 if (fallbackResponse && fallbackResponse.ok) {
                                     ollamaResponse = fallbackResponse;
@@ -2165,7 +2188,7 @@ Here is the 3-part report for [Student Name]:
                                         keep_alive: "60m",
                                         options: { num_predict: tokenLimit, temperature: 0.1 }
                                     }),
-                                    signal: AbortSignal.timeout(timeoutMs)
+                                    signal: AbortSignal.timeout(Math.min(currentTimeout, Math.max(1000, overallDeadline - Date.now())))
                                 });
                                 if (retryChat && retryChat.ok) {
                                     ollamaResponse = retryChat;
@@ -2242,7 +2265,9 @@ Here is the 3-part report for [Student Name]:
             intake: manualIntake
         });
         result.isAiGenerated = false;
-        result.aiError = e?.message || "Execution timeout";
+        result.aiError = isCloudEnv 
+            ? "Cloud inference deferred to client tunnel (8s serverless limit)" 
+            : (e?.message || "Execution timeout");
     }
 
     const existingNotes = result.studentSummary;

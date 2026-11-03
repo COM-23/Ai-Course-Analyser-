@@ -13,8 +13,16 @@ function cleanAndNormalizeUrl(input: string): string {
     }
   }
   str = str.replace(/\/+$/, '');
+  try {
+    const u = new URL(str);
+    if (!u.port && (u.hostname.startsWith('192.168.') || u.hostname.startsWith('10.') || u.hostname === '127.0.0.1' || u.hostname === 'localhost')) {
+      u.port = '11434';
+      str = u.toString().replace(/\/+$/, '');
+    }
+  } catch (e) {}
+
   if (!str.endsWith('/api/generate')) {
-    str = str.replace(/\/api\/?$/, '');
+    str = str.replace(/\/api\/chat\/?$/, '').replace(/\/api\/?$/, '');
     str = str + '/api/generate';
   }
   return str;
@@ -141,17 +149,27 @@ export async function GET(req: Request) {
     return NextResponse.json(result);
   }
 
+  // Build configured variants (pair port 11434 and 11435 automatically)
+  const configuredVariants: string[] = [];
+  if (configuredEndpoint) {
+    configuredVariants.push(configuredEndpoint);
+    if (configuredEndpoint.includes(':11435')) {
+      configuredVariants.push(configuredEndpoint.replace(':11435', ':11434'));
+    } else if (configuredEndpoint.includes(':11434')) {
+      configuredVariants.push(configuredEndpoint.replace(':11434', ':11435'));
+    }
+  }
+
   const candidateEndpoints = (isCloudEnv
-    ? [configuredEndpoint].filter(Boolean)
+    ? configuredVariants.filter(Boolean)
     : [
-        configuredEndpoint,
+        ...configuredVariants,
         'http://192.168.0.80:11434/api/generate',
         'http://192.168.0.80:11435/api/generate',
-        'http://192.168.0.66:11435/api/generate',
         'http://192.168.0.66:11434/api/generate',
-        'http://192.168.0.76:11434/api/generate',
-        'http://127.0.0.1:11435/api/generate',
-        'http://127.0.0.1:11434/api/generate'
+        'http://192.168.0.66:11435/api/generate',
+        'http://127.0.0.1:11434/api/generate',
+        'http://127.0.0.1:11435/api/generate'
       ].filter(Boolean)
   ).filter(ep => 
     !ep.includes('entrepreneurs-psp-navigate-maternity') && 
@@ -187,7 +205,7 @@ export async function GET(req: Request) {
 
       let isUp = false;
       let modelList: string[] = [];
-      const probeTimeout = 8000; // 8 seconds allows Cloudflare edge handshake to warm up
+      const probeTimeout = 4000;
 
       // Probe 1: Direct Ollama /api/tags (with auth headers)
       try {
@@ -210,8 +228,15 @@ export async function GET(req: Request) {
         lastError = e?.message || String(e);
       }
 
+      // If connection was refused or fetch failed (port is dead), skip remaining slow probes on this port
+      const isDeadPort = lastError && (
+        lastError.toLowerCase().includes('fetch failed') ||
+        lastError.toLowerCase().includes('econnrefused') ||
+        lastError.toLowerCase().includes('enotfound')
+      );
+
       // Probe 2: Ollama /api/tags (without auth headers, in case direct tunnel to 11434)
-      if (!isUp) {
+      if (!isUp && !isDeadPort) {
         try {
           const noAuthRes = await fetch(`${baseUrl}/api/tags`, {
             method: 'GET',
@@ -231,12 +256,12 @@ export async function GET(req: Request) {
       }
 
       // Probe 3: Lightweight gateway ping (/ping or /healthz)
-      if (!isUp) {
+      if (!isUp && !isDeadPort) {
         try {
           const pingRes = await fetch(`${baseUrl}/ping`, {
             method: 'GET',
             headers: authHeaders,
-            signal: AbortSignal.timeout(4000)
+            signal: AbortSignal.timeout(2500)
           });
           if (pingRes.ok) {
             const contentType = pingRes.headers.get('content-type') || '';
@@ -251,11 +276,11 @@ export async function GET(req: Request) {
       }
 
       // Probe 4: Root endpoint (standard Ollama returns plain text "Ollama is running" with 200 OK)
-      if (!isUp) {
+      if (!isUp && !isDeadPort) {
         try {
           const rootRes = await fetch(`${baseUrl}/`, {
             method: 'GET',
-            signal: AbortSignal.timeout(probeTimeout)
+            signal: AbortSignal.timeout(2500)
           });
           if (rootRes.ok) {
             const rootText = await rootRes.text();
@@ -267,7 +292,7 @@ export async function GET(req: Request) {
       }
 
       // Probe 5: Ollama version check (/api/version returns JSON {"version":"..."})
-      if (!isUp) {
+      if (!isUp && !isDeadPort) {
         try {
           const verRes = await fetch(`${baseUrl}/api/version`, {
             method: 'GET',
