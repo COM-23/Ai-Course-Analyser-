@@ -1486,7 +1486,6 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
           targetIntake: intake,
           counselorId: currentUser ? currentUser.id : 1,
           primaryStudentId: activeStudentId,
-          isComparison: true,
           compareCountryIndex: i,
           totalCompareCountries: compareCountries.length,
           realtimeFetching: false,
@@ -1521,22 +1520,6 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
             } else if (errText) {
               errMsg = errText.slice(0, 300);
             }
-          }
-          if (res.status === 504 || res.status === 502) {
-            console.warn(`Gateway timeout on ${country}, using reliable fallback evaluation`);
-            const fallbackData: any = {
-              compareCountry: country,
-              studentDetails: { ...result?.studentDetails, destinationCountry: country },
-              studentSummary: `Academic and admissions evaluation for ${country}. Matching universities, estimated tuition, and visa analysis calculated from verified program databases.`,
-              recommendedColleges: [],
-              visaDifficulty: "Moderate",
-              estimatedBudgetRange: result?.estimatedBudgetRange || "Standard Budget",
-              isAiGenerated: false
-            };
-            accumulated.push(fallbackData);
-            setCompareResults([...accumulated]);
-            setCompareProgress(Math.round(((i + 1) / compareCountries.length) * 100));
-            continue;
           }
           throw new Error(errMsg);
         }
