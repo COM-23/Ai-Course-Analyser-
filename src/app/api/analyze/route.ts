@@ -2007,12 +2007,13 @@ Student: ${extractedName}${contactInfo ? ` | Contact: ${contactInfo}` : ''} | Go
                 aiApiKey = cloudDefaultApiKey;
             }
 
-            // Cloud serverless timeout strictly set to 8.0s so Netlify's 10s proxy never drops connection with 502
-            // Local on-premise servers (Windows / Mac / Linux) allow 120 seconds.
-            const timeoutMs = isCloudEnv ? 8000 : 120000;
-            // 200 tokens generates the 130-150 token structured report in ~8-10 seconds on CPU
-            const tokenLimit = 200;
-            const overallDeadline = Date.now() + (isCloudEnv ? 8000 : 120000);
+            // Synchronous inference timeout:
+            // Netlify maximum function execution timeout is 26s (configured in netlify.toml).
+            // Allow up to 24 seconds for Ollama inference on Cloud, 120 seconds on on-premise local servers.
+            const timeoutMs = isCloudEnv ? 24000 : 120000;
+            // 220 tokens generates the 130-150 token structured report with full safety margin
+            const tokenLimit = 220;
+            const overallDeadline = Date.now() + (isCloudEnv ? 24000 : 120000);
 
             let ollamaResponse: Response | null = null;
             let lastAiError: any = null;
@@ -2266,7 +2267,7 @@ Here is the 3-part report for [Student Name]:
         });
         result.isAiGenerated = false;
         result.aiError = isCloudEnv 
-            ? "Cloud inference deferred to client tunnel (8s serverless limit)" 
+            ? "Cloud inference timeout (>24s)" 
             : (e?.message || "Execution timeout");
     }
 

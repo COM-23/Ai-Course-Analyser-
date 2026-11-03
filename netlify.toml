@@ -14,4 +14,5 @@
   LOCAL_AI_MODEL = "llama3.1:latest"
 
 [functions]
+  timeout = 26
   included_files = ["students.db.gz", "src/lib/db-seed.json"]
