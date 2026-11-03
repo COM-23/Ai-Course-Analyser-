@@ -51,3 +51,4 @@ $PM2_CMD status
 echo ""
 echo "Logs can be viewed anytime via:"
 echo "  $PM2_CMD logs cloudflare-ai-tunnel"
+

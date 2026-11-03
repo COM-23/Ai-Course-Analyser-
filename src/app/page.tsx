@@ -44,7 +44,9 @@ import {
   Mail,
   Phone,
   Copy,
-  Check
+  Check,
+  ZoomIn,
+  ZoomOut
 } from "lucide-react";
 import * as htmlToImage from 'html-to-image';
 import { jsPDF } from 'jspdf';
@@ -381,6 +383,35 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState<"dashboard" | "analyzer" | "roster" | "settings">("analyzer");
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [settingsTab, setSettingsTab] = useState<"users" | "security" | "preferences" | "database">("users");
+  
+  // Global Interface Zoom Scaling (Permanent User Preference)
+  const [uiZoom, setUiZoom] = useState<number>(90);
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('learn_overseas_ui_zoom');
+      if (saved) {
+        const val = parseInt(saved, 10);
+        if (!isNaN(val) && val >= 65 && val <= 125) {
+          setUiZoom(val);
+          document.documentElement.style.zoom = `${val}%`;
+          return;
+        }
+      }
+      // Default to 90% for balanced laptop & desktop viewing
+      setUiZoom(90);
+      document.documentElement.style.zoom = '90%';
+    } catch (e) {}
+  }, []);
+
+  const handleZoomChange = (newZoom: number) => {
+    const clamped = Math.max(65, Math.min(125, newZoom));
+    setUiZoom(clamped);
+    try {
+      localStorage.setItem('learn_overseas_ui_zoom', clamped.toString());
+      document.documentElement.style.zoom = `${clamped}%`;
+    } catch (e) {}
+  };
   
   // Real-time Currency Conversion & View State
   const [currencyView, setCurrencyView] = useState<string>("NATIVE");
@@ -1720,6 +1751,36 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
   if (!currentUser) {
     return (
       <div className="min-h-screen bg-[#0A0A0B] text-slate-200 flex items-center justify-center relative overflow-hidden">
+        {/* Quick Zoom Tool on Login Screen */}
+        <div className="absolute top-4 right-4 z-20 flex items-center bg-[#111113]/80 backdrop-blur border border-white/10 rounded-xl px-2 py-1 text-slate-300 shadow-lg">
+          <button
+            type="button"
+            onClick={() => handleZoomChange(uiZoom - 5)}
+            disabled={uiZoom <= 65}
+            className="p-1 hover:text-white disabled:opacity-30 rounded cursor-pointer transition-colors"
+            title="Zoom Out (More Compact)"
+          >
+            <ZoomOut className="w-3.5 h-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => handleZoomChange(90)}
+            className="text-[11px] font-mono font-bold px-1.5 text-slate-400 hover:text-white cursor-pointer select-none"
+            title="Reset to 90% (Recommended)"
+          >
+            {uiZoom}%
+          </button>
+          <button
+            type="button"
+            onClick={() => handleZoomChange(uiZoom + 5)}
+            disabled={uiZoom >= 125}
+            className="p-1 hover:text-white disabled:opacity-30 rounded cursor-pointer transition-colors"
+            title="Zoom In"
+          >
+            <ZoomIn className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
         <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] rounded-full bg-[#FC7133]/15 blur-[120px] animate-blob" />
         <div className="absolute bottom-[-20%] right-[-10%] w-[50%] h-[50%] rounded-full bg-[#7DC1B1]/10 blur-[120px] animate-blob" style={{ animationDelay: '2s' }} />
         
@@ -1795,10 +1856,10 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
 
       {/* Global Sidebar */}
       <aside className="relative z-20 w-[240px] xl:w-[260px] bg-[#0A0A0B]/90 backdrop-blur-3xl border-r border-white/5 flex flex-col hidden lg:flex shrink-0">
-        <div className="p-5 xl:p-8 border-b border-white/5 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#FC7133] via-[#F9D440] to-[#7DC1B1] p-px shadow-lg shadow-[#FC7133]/20 shrink-0">
-              <div className="w-full h-full bg-[#111113] rounded-xl flex items-center justify-center p-2">
+        <div className="p-4 xl:p-5 border-b border-white/5 flex items-center justify-between">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#FC7133] via-[#F9D440] to-[#7DC1B1] p-px shadow-lg shadow-[#FC7133]/20 shrink-0">
+              <div className="w-full h-full bg-[#111113] rounded-xl flex items-center justify-center p-1.5">
                 <img 
                   src={theme === 'light' ? "/logo-light.png" : "/logo-dark.png"} 
                   alt="Learn Overseas Logo" 
@@ -1806,17 +1867,47 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
                 />
               </div>
             </div>
-            <div>
-              <h1 className="text-lg font-black text-white leading-tight">Learn<br/>Overseas</h1>
+            <div className="min-w-0">
+              <h1 className="text-base font-black text-white leading-tight truncate">Learn<br/>Overseas</h1>
             </div>
           </div>
-          <button
-            onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
-            className="p-2 rounded-full bg-white/5 border border-white/10 hover:bg-white/10 text-white transition-all shadow-md shrink-0 ml-2"
-            title="Toggle Theme"
-          >
-            {theme === 'dark' ? <Sun className="w-4 h-4 text-[#F9D440]" /> : <Moon className="w-4 h-4 text-[#FC7133]" />}
-          </button>
+          <div className="flex items-center gap-1.5 shrink-0 ml-2">
+            <div className="flex items-center bg-white/5 border border-white/10 rounded-xl px-1 py-0.5 text-slate-300">
+              <button
+                type="button"
+                onClick={() => handleZoomChange(uiZoom - 5)}
+                disabled={uiZoom <= 65}
+                className="p-1 hover:text-white disabled:opacity-30 rounded cursor-pointer transition-colors"
+                title="Zoom Out (More Compact)"
+              >
+                <ZoomOut className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => handleZoomChange(90)}
+                className="text-[10px] font-mono font-bold px-1 text-slate-400 hover:text-white cursor-pointer select-none"
+                title="Reset zoom to 90%"
+              >
+                {uiZoom}%
+              </button>
+              <button
+                type="button"
+                onClick={() => handleZoomChange(uiZoom + 5)}
+                disabled={uiZoom >= 125}
+                className="p-1 hover:text-white disabled:opacity-30 rounded cursor-pointer transition-colors"
+                title="Zoom In"
+              >
+                <ZoomIn className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <button
+              onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
+              className="p-1.5 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 text-white transition-all shadow-md shrink-0 cursor-pointer"
+              title="Toggle Theme"
+            >
+              {theme === 'dark' ? <Sun className="w-3.5 h-3.5 text-[#F9D440]" /> : <Moon className="w-3.5 h-3.5 text-[#FC7133]" />}
+            </button>
+          </div>
         </div>
 
         <div className="flex-1 py-5 xl:py-8 px-3 xl:px-4 flex flex-col gap-1.5 xl:gap-2">
@@ -1868,7 +1959,7 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
       </aside>
 
       {/* Main Content Area */}
-      <main className="relative z-10 flex-1 flex flex-col h-screen overflow-hidden px-3 sm:px-4 lg:px-6 xl:px-8 py-3 sm:py-4 lg:py-6 xl:py-8">
+      <main className="relative z-10 flex-1 flex flex-col h-screen overflow-hidden px-3 sm:px-4 lg:px-5 xl:px-6 py-3 sm:py-4 lg:py-5 xl:py-6">
         
         {activeTab === "analyzer" && (
           <>
@@ -3455,6 +3546,71 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
                           </div>
                         </div>
                       )}
+                    </div>
+
+                    {/* Display Density & Zoom Scaling */}
+                    <div className="bg-[#18181B] border border-white/10 rounded-2xl p-6 space-y-4 hover:border-[#FC7133]/30 transition-colors shadow-lg max-w-4xl">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-base font-bold text-white flex items-center gap-2.5">
+                          <Sparkles className="w-4 h-4 text-[#FC7133]" /> Display Density & Zoom Scaling
+                        </h3>
+                        <span className="text-xs font-mono font-bold px-2.5 py-1 rounded-lg bg-white/5 text-[#FC7133] border border-white/10">
+                          Current: {uiZoom}%
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-400">
+                        Customize interface density to fit your laptop or desktop display perfectly. If elements look oversized on Windows 125%-150% scaling, 85% or 90% is recommended.
+                      </p>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
+                        {[
+                          { label: "75%", val: 75, desc: "Ultra Compact" },
+                          { label: "85%", val: 85, desc: "Compact" },
+                          { label: "90%", val: 90, desc: "Balanced (Default)" },
+                          { label: "100%", val: 100, desc: "Standard" },
+                        ].map((preset) => (
+                          <button
+                            key={preset.val}
+                            type="button"
+                            onClick={() => handleZoomChange(preset.val)}
+                            className={`p-3 rounded-xl text-xs font-bold transition-all border text-left cursor-pointer ${
+                              uiZoom === preset.val
+                                ? 'bg-[#FC7133]/20 border-[#FC7133] text-[#FC7133] shadow-inner ring-1 ring-[#FC7133]/40'
+                                : 'bg-[#0A0A0B] border-white/10 text-slate-300 hover:bg-white/5 hover:text-white'
+                            }`}
+                          >
+                            <div className="font-mono text-sm">{preset.label}</div>
+                            <div className="text-[10px] text-slate-500 font-normal mt-0.5">{preset.desc}</div>
+                          </button>
+                        ))}
+                      </div>
+                      <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-white/5">
+                        <span className="text-xs text-slate-500">Fine-tune in 5% increments:</span>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleZoomChange(uiZoom - 5)}
+                            disabled={uiZoom <= 65}
+                            className="px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-xs font-bold text-slate-300 disabled:opacity-30 cursor-pointer transition-colors"
+                          >
+                            - 5% Zoom
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleZoomChange(90)}
+                            className="px-3 py-1.5 bg-[#FC7133]/10 hover:bg-[#FC7133]/20 border border-[#FC7133]/30 rounded-lg text-xs font-bold text-[#FC7133] cursor-pointer transition-colors"
+                          >
+                            Reset to Default (90%)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleZoomChange(uiZoom + 5)}
+                            disabled={uiZoom >= 125}
+                            className="px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-xs font-bold text-slate-300 disabled:opacity-30 cursor-pointer transition-colors"
+                          >
+                            + 5% Zoom
+                          </button>
+                        </div>
+                      </div>
                     </div>
 
                     {currentUser?.role === 'super_admin' && (
