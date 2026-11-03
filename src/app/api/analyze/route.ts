@@ -2039,12 +2039,12 @@ Student: ${extractedName}${contactInfo ? ` | Contact: ${contactInfo}` : ''} | Go
             }
 
             // Synchronous inference timeout:
-            // Capped at 8.5s for cloud serverless to ensure response returns cleanly before Netlify drops connection with 502
+            // Allow up to 24s so Ollama finishes inference cleanly without premature aborts
             // Local on-premise servers (Windows / Mac / Linux) allow 120 seconds.
-            const timeoutMs = isCloudEnv ? 8500 : 120000;
-            // 42 tokens generates a crisp 3-part structured summary in ~5.2s on CPU
+            const timeoutMs = isCloudEnv ? 24000 : 120000;
+            // 42 tokens generates the crisp 3-part structured summary in ~8-10s on CPU
             const tokenLimit = isCloudEnv ? 42 : 100;
-            const overallDeadline = Date.now() + (isCloudEnv ? 8500 : 120000);
+            const overallDeadline = Date.now() + (isCloudEnv ? 24000 : 120000);
 
             let ollamaResponse: Response | null = null;
             let lastAiError: any = null;
@@ -2055,7 +2055,7 @@ Student: ${extractedName}${contactInfo ? ` | Contact: ${contactInfo}` : ''} | Go
 
             for (const targetUrl of candidateEndpoints) {
                 const remainingTime = overallDeadline - Date.now();
-                if (remainingTime <= 2000) break;
+                if (remainingTime <= 1000) break;
                 const currentTimeout = Math.min(timeoutMs, remainingTime);
 
                 try {
