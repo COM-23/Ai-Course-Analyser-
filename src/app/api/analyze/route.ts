@@ -2039,12 +2039,12 @@ Student: ${extractedName}${contactInfo ? ` | Contact: ${contactInfo}` : ''} | Go
             }
 
             // Synchronous inference timeout:
-            // Allow up to 30s so Ollama finishes inference cleanly without premature aborts
-            // Local on-premise servers (Windows / Mac / Linux) allow 120 seconds.
-            const timeoutMs = isCloudEnv ? 30000 : 120000;
+            // For multi-country comparison, cap timeout to 6s so sequential country iterations never trip Netlify's gateway limit.
+            // For single student analysis, allow up to 25s for genuine on-premise AI inference.
+            const timeoutMs = isCloudEnv ? (isComparison ? 6000 : 25000) : 120000;
             // 350 tokens ensures all 3 sections complete fully without premature cutoff
-            const tokenLimit = 350;
-            const overallDeadline = Date.now() + (isCloudEnv ? 30000 : 120000);
+            const tokenLimit = isComparison ? 50 : 350;
+            const overallDeadline = Date.now() + timeoutMs;
 
             let ollamaResponse: Response | null = null;
             let lastAiError: any = null;
