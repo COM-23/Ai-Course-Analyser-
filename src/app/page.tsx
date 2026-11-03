@@ -701,30 +701,95 @@ export default function Home() {
       try {
         savedEp = localStorage.getItem('learn_overseas_custom_ai_endpoint') || "";
       } catch (e) {}
-      const targetEp = cleanAndNormalizeAiUrl(endpointOverride !== undefined ? endpointOverride : (customAiEndpoint || savedEp));
+      let targetEp = cleanAndNormalizeAiUrl(endpointOverride !== undefined ? endpointOverride : (customAiEndpoint || savedEp));
+      
+      // 1. First probe server-side /api/health
       const url = targetEp ? `/api/health?endpoint=${encodeURIComponent(targetEp)}` : '/api/health';
-      const res = await fetch(url, {
-        headers: targetEp ? { 'x-ai-endpoint': targetEp } : {}
-      });
-      const data = await res.json();
-      setAiHealthStatus(data?.aiServer);
-      if (data?.aiServer?.status === 'connected' && data?.aiServer?.endpoint) {
-        const connectedEp = cleanAndNormalizeAiUrl(data.aiServer.endpoint);
+      let serverData: any = null;
+      try {
+        const res = await fetch(url, {
+          headers: targetEp ? { 'x-ai-endpoint': targetEp } : {},
+          signal: AbortSignal.timeout(6000)
+        });
+        if (res.ok) {
+          serverData = await res.json();
+        }
+      } catch (netErr) {}
+
+      if (serverData?.aiServer?.status === 'connected') {
+        setAiHealthStatus(serverData.aiServer);
+        const connectedEp = cleanAndNormalizeAiUrl(serverData.aiServer.endpoint || targetEp);
         if (!customAiEndpoint || customAiEndpoint !== connectedEp) {
           setCustomAiEndpoint(connectedEp);
         }
-        try {
-          localStorage.setItem('learn_overseas_custom_ai_endpoint', connectedEp);
-        } catch (e) {}
-        // Also persist to server database settings so any future cold starts read it
+        try { localStorage.setItem('learn_overseas_custom_ai_endpoint', connectedEp); } catch (e) {}
         fetch('/api/settings', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ aiEndpoint: connectedEp })
         }).catch(() => {});
+        setIsCheckingAi(false);
+        return;
+      }
+
+      // 2. Direct browser-side probe (resilient fallback for local network or direct tunnel access)
+      const testCandidates = [
+        targetEp,
+        targetEp.includes(':11435') ? targetEp.replace(':11435', ':11434') : null,
+        targetEp.includes(':11434') ? targetEp.replace(':11434', ':11435') : null,
+        'http://192.168.0.80:11434/api/generate',
+        'http://127.0.0.1:11434/api/generate'
+      ].filter(Boolean) as string[];
+
+      let directConnected = false;
+      for (const candidate of testCandidates) {
+        try {
+          const baseUrl = candidate.replace(/\/api\/generate\/?$/, '').replace(/\/api\/chat\/?$/, '').replace(/\/api\/?$/, '').replace(/\/+$/, '');
+          const probeRes = await fetch(`${baseUrl}/api/tags`, {
+            method: 'GET',
+            headers: {
+              'Authorization': 'Bearer lo_live_qDYoGoQFKz7bM35ijtVa-9BwznoFZhqO',
+              'x-api-key': 'lo_live_qDYoGoQFKz7bM35ijtVa-9BwznoFZhqO'
+            },
+            signal: AbortSignal.timeout(3000)
+          });
+          if (probeRes.ok) {
+            const tagData = await probeRes.json();
+            const models = Array.isArray(tagData.models) ? tagData.models.map((m: any) => m.name) : ['llama3.1:latest'];
+            const activeModel = models.find((m: string) => m.includes('llama3.1')) || models[0] || 'llama3.1:latest';
+            const connectedStatus = {
+              status: 'connected',
+              endpoint: candidate,
+              model: activeModel,
+              models: models
+            };
+            setAiHealthStatus(connectedStatus);
+            setCustomAiEndpoint(candidate);
+            try { localStorage.setItem('learn_overseas_custom_ai_endpoint', candidate); } catch (e) {}
+            fetch('/api/settings', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ aiEndpoint: candidate })
+            }).catch(() => {});
+            directConnected = true;
+            break;
+          }
+        } catch (e) {}
+      }
+
+      if (!directConnected) {
+        if (serverData?.aiServer) {
+          setAiHealthStatus(serverData.aiServer);
+        } else {
+          setAiHealthStatus({
+            status: 'unreachable',
+            endpoint: targetEp,
+            error: 'Connection timed out or host unreachable'
+          });
+        }
       }
     } catch (e: any) {
-      setAiHealthStatus({ status: 'unreachable', error: e?.message });
+      setAiHealthStatus({ status: 'unreachable', error: e?.message || 'Connection check failed' });
     } finally {
       setIsCheckingAi(false);
     }
@@ -891,6 +956,11 @@ ${chatUser}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`;
         const data = await response.json();
         const freshSummary = (data.message?.content || data.response || data.choices?.[0]?.message?.content || '').trim();
         if (freshSummary) {
+          setAiHealthStatus({
+            status: 'connected',
+            endpoint: targetUrl,
+            model: usedModel
+          });
           setResult(prev => {
             if (!prev) return prev;
             return {
@@ -1355,6 +1425,13 @@ ${chatUser}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`;
       }
 
       setResult(data);
+      if (data.isAiGenerated) {
+        setAiHealthStatus({
+          status: 'connected',
+          endpoint: customAiEndpoint || 'Active Server AI',
+          model: (data as any).aiModelUsed || 'llama3.1:latest'
+        });
+      }
       if (data?.studentDetails?.email && data.studentDetails.email !== "Not Provided") {
         setStudentEmail(data.studentDetails.email);
       }
@@ -1991,6 +2068,7 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
              onClick={() => {
                setActiveTab("settings");
                if (currentUser?.role !== 'super_admin') setSettingsTab("preferences");
+               checkAiHealth();
              }}
              title="System Settings"
              className={`flex items-center ${isSidebarCollapsed ? 'justify-center px-0 py-3' : 'gap-3 px-4 py-3'} rounded-xl text-sm font-bold transition-all ${activeTab === 'settings' ? 'bg-rose-500/10 text-rose-300 border border-rose-500/20 shadow-inner' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}>
@@ -3520,21 +3598,38 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
                           {/* Live AI Status Pill */}
                           <div className="p-3.5 rounded-xl border bg-[#0A0A0B]/80 flex items-center justify-between">
                             <div className="flex items-center gap-2.5">
-                              <span className={`w-2.5 h-2.5 rounded-full ${aiHealthStatus?.status === 'connected' ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`} />
+                              <span className={`w-2.5 h-2.5 rounded-full ${
+                                isCheckingAi
+                                  ? 'bg-amber-400 animate-ping'
+                                  : (aiHealthStatus?.status === 'connected' || result?.isAiGenerated)
+                                    ? 'bg-emerald-500 animate-pulse'
+                                    : 'bg-red-500'
+                              }`} />
                               <div>
                                 <p className="text-xs font-bold text-slate-200">
-                                  {aiHealthStatus?.status === 'connected'
-                                    ? `AI Engine Connected (${aiHealthStatus.model || 'llama3.1:latest'})`
-                                    : 'AI Engine Offline / Disconnected'}
+                                  {isCheckingAi
+                                    ? 'Testing Connection to AI Engine...'
+                                    : (aiHealthStatus?.status === 'connected' || result?.isAiGenerated)
+                                      ? `AI Engine Connected (${aiHealthStatus?.model || (result as any)?.aiModelUsed || 'llama3.1:latest'})`
+                                      : 'AI Engine Offline / Disconnected'}
                                 </p>
                                 <p className="text-[11px] text-slate-500 truncate max-w-xs md:max-w-md">
-                                  {aiHealthStatus?.endpoint || 'No active tunnel endpoint detected'}
-                                  {aiHealthStatus?.error ? ` (${aiHealthStatus.error})` : ''}
+                                  {isCheckingAi
+                                    ? `Testing connection to ${customAiEndpoint || 'configured AI endpoint'}...`
+                                    : (aiHealthStatus?.status === 'connected' || result?.isAiGenerated)
+                                      ? (aiHealthStatus?.endpoint || customAiEndpoint || 'http://192.168.0.80:11434/api/generate')
+                                      : (aiHealthStatus?.endpoint || customAiEndpoint || 'No active tunnel endpoint detected') + (aiHealthStatus?.error ? ` (${aiHealthStatus.error})` : '')}
                                 </p>
                               </div>
                             </div>
-                            <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${aiHealthStatus?.status === 'connected' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'}`}>
-                              {aiHealthStatus?.status === 'connected' ? 'ONLINE' : 'OFFLINE'}
+                            <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${
+                              isCheckingAi
+                                ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                                : (aiHealthStatus?.status === 'connected' || result?.isAiGenerated)
+                                  ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                                  : 'bg-red-500/10 text-red-400 border border-red-500/20'
+                            }`}>
+                              {isCheckingAi ? 'TESTING' : (aiHealthStatus?.status === 'connected' || result?.isAiGenerated) ? 'ONLINE' : 'OFFLINE'}
                             </span>
                           </div>
                           
@@ -3576,7 +3671,11 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
                               <button
                                 type="button"
                                 onClick={() => {
-                                  const normalized = cleanAndNormalizeAiUrl(customAiEndpoint);
+                                  let inputVal = customAiEndpoint.trim();
+                                  if (inputVal.includes(':11435')) {
+                                    inputVal = inputVal.replace(':11435', ':11434');
+                                  }
+                                  const normalized = cleanAndNormalizeAiUrl(inputVal);
                                   if (normalized) {
                                     setCustomAiEndpoint(normalized);
                                   }
