@@ -56,7 +56,14 @@ export function getDb(): DatabaseAdapter {
 
   if (isServerless) {
     const tmpPath = '/tmp/students.db';
-    const needsExtract = !fs.existsSync(tmpPath);
+    let needsExtract = !fs.existsSync(tmpPath);
+    if (!needsExtract) {
+      try {
+        if (fs.statSync(tmpPath).size < 1000000) needsExtract = true;
+      } catch (e) {
+        needsExtract = true;
+      }
+    }
 
     if (needsExtract) {
       try {
@@ -450,6 +457,9 @@ function createPureJsDatabase(storagePath: string): DatabaseAdapter {
 
       return {
         get: (...params: any[]) => {
+          if (upper.includes('SQLITE_MASTER')) {
+            return { c: 1, count: 1 };
+          }
           if (upper.includes('FROM USERS') && upper.includes('WHERE USERNAME = ?')) {
             const u = String(params[0] || '').toLowerCase();
             return memoryData.users.find((x: any) => String(x.username || '').toLowerCase() === u);
@@ -518,6 +528,32 @@ function createPureJsDatabase(storagePath: string): DatabaseAdapter {
               id: s.id,
               value: typeof s.value === 'string' ? s.value : JSON.stringify(s.value)
             }));
+          }
+          if (upper.includes('FROM PROGRAMS')) {
+            if (Array.isArray(memoryData.programs) && memoryData.programs.length > 0) {
+              return memoryData.programs;
+            }
+            return (memoryData.universities || []).map((u: any) => {
+              let parsedProgs: any = {};
+              try { parsedProgs = typeof u.programs === 'string' ? JSON.parse(u.programs) : (u.programs || {}); } catch(e) {}
+              return {
+                id: u.id,
+                course_name: parsedProgs.masters || parsedProgs.bachelors || `Degree in ${u.domain || 'Technology'}`,
+                university_name: u.name,
+                university_city: u.location ? u.location.split(',')[0].trim() : '',
+                country_name: u.location ? u.location.split(',').pop().trim() : 'USA',
+                study_level: 'Postgraduate',
+                tuition_amount: u.tuition || 20000,
+                tuition_currency: u.currency || 'USD',
+                min_cgpa: u.minCgpa || 6.0,
+                course_link: u.courseLink || undefined,
+                deadlines: 'Dec 15 - Jan 15',
+                intakes: 'Fall, Spring',
+                entry_requirement: `Minimum CGPA ${u.minCgpa || 6.0}`,
+                scholarship_available: 1,
+                domain: u.domain || 'science_technology'
+              };
+            });
           }
           if (upper.includes('FROM UNIVERSITIES')) {
             return [...memoryData.universities];

@@ -287,6 +287,169 @@ class LocalHeuristicBrain {
       });
   }
 
+  queryMatchingPrograms(
+    courseQuery: string,
+    destinationCountry: string,
+    degreeObjective: string,
+    primaryDomain: string,
+    extractedCgpa: number,
+    activeBacklogs: number
+  ): any[] {
+    try {
+      const db = getDb();
+      const hasPrograms = db.prepare("SELECT count(*) as c FROM sqlite_master WHERE type='table' AND name='programs'").get() as any;
+      if (!hasPrograms || (typeof hasPrograms.c === 'number' && hasPrograms.c === 0) || (typeof hasPrograms.count === 'number' && hasPrograms.count === 0)) {
+        return [];
+      }
+
+      const searchTerms: string[] = [];
+      const cleanSubject = courseQuery
+        ? courseQuery
+            .replace(/^(?:master(?:s)?|bachelor(?:s)?|m\.?sc|b\.?sc|m\.?tech|b\.?tech|m\.?s|b\.?s|m\.?e|b\.?e|ph\.?d|mba|pgdm)\s+(?:in|of)?\s*/i, '')
+            .trim()
+        : "";
+
+      const lowerSubject = cleanSubject.toLowerCase();
+      // Only add raw substring if subject is 4+ chars and not an acronym (prevents 'ai' from matching 'supply chain' or 'sustainable')
+      if (cleanSubject.length >= 4 && !['ai', 'cs', 'ds', 'it', 'ml', 'mba', 'bba', 'bca', 'mca'].includes(lowerSubject)) {
+        searchTerms.push(`%${cleanSubject}%`);
+      }
+
+      const combinedText = `${cleanSubject} ${courseQuery}`.toLowerCase();
+
+      if (/\b(?:ai|artificial intelligence)\b/i.test(combinedText)) {
+        searchTerms.push('%Artificial Intelligence%');
+        searchTerms.push('%Machine Learning%');
+        searchTerms.push('% AI %');
+        searchTerms.push('% AI');
+        searchTerms.push('AI %');
+        searchTerms.push('%(AI)%');
+        searchTerms.push('%/AI%');
+        searchTerms.push('%Data Engineering%');
+      }
+      if (/\b(?:data science|data analytics|ds|big data)\b/i.test(combinedText)) {
+        searchTerms.push('%Data Science%');
+        searchTerms.push('%Data Analytics%');
+        searchTerms.push('%Big Data%');
+        searchTerms.push('%Business Analytics%');
+      }
+      if (/\b(?:cs|computer science|computing|software engineering)\b/i.test(combinedText)) {
+        searchTerms.push('%Computer Science%');
+        searchTerms.push('%Software Engineering%');
+        searchTerms.push('%Computing%');
+        searchTerms.push('%Informatics%');
+      }
+      if (/\b(?:cyber|cybersecurity|information security)\b/i.test(combinedText)) {
+        searchTerms.push('%Cybersecurity%');
+        searchTerms.push('%Cyber Security%');
+        searchTerms.push('%Information Security%');
+      }
+      if (/\b(?:cloud)\b/i.test(combinedText)) {
+        searchTerms.push('%Cloud Computing%');
+      }
+      if (/\b(?:mba|business administration|management)\b/i.test(combinedText)) {
+        searchTerms.push('%MBA%');
+        searchTerms.push('%Business Administration%');
+        searchTerms.push('%Management%');
+      }
+      if (/\b(?:finance)\b/i.test(combinedText)) {
+        searchTerms.push('%Finance%');
+        searchTerms.push('%Financial%');
+      }
+      if (/\b(?:marketing)\b/i.test(combinedText)) {
+        searchTerms.push('%Marketing%');
+        searchTerms.push('%Digital Marketing%');
+      }
+      if (/\b(?:mechanical)\b/i.test(combinedText)) {
+        searchTerms.push('%Mechanical%');
+        searchTerms.push('%Mechatronics%');
+      }
+      if (/\b(?:civil)\b/i.test(combinedText)) {
+        searchTerms.push('%Civil Engineering%');
+      }
+      if (/\b(?:electrical|electronics)\b/i.test(combinedText)) {
+        searchTerms.push('%Electrical%');
+        searchTerms.push('%Electronics%');
+      }
+      if (/\b(?:biotech|biotechnology)\b/i.test(combinedText)) {
+        searchTerms.push('%Biotechnology%');
+        searchTerms.push('%Bioinformatics%');
+      }
+
+      const useDomainFallback = searchTerms.length === 0;
+      const whereClauses: string[] = [];
+      const queryParams: any[] = [];
+
+      if (!useDomainFallback) {
+        const uniqueTerms = Array.from(new Set(searchTerms));
+        const placeholders = uniqueTerms.map(() => 'p.name LIKE ?').join(' OR ');
+        whereClauses.push(`(${placeholders})`);
+        queryParams.push(...uniqueTerms);
+      } else if (primaryDomain) {
+        whereClauses.push('(p.domain = ? OR p.name LIKE ?)');
+        queryParams.push(primaryDomain, `%${primaryDomain.replace(/_/g, ' ')}%`);
+      }
+
+      const isPostgrad = degreeObjective.includes("Post Graduate") || degreeObjective.includes("Master") || degreeObjective.includes("MBA");
+      const isUndergrad = degreeObjective.includes("Undergraduate") || degreeObjective.includes("Diploma") || degreeObjective.includes("Bachelor");
+      const isDoctorate = degreeObjective.includes("PhD") || degreeObjective.includes("Doctor");
+
+      if (isDoctorate) {
+        whereClauses.push("(p.study_level LIKE '%PhD%' OR p.study_level LIKE '%Doctor%')");
+      } else if (isPostgrad) {
+        whereClauses.push("(p.study_level LIKE '%Postgraduate%' OR p.study_level LIKE '%PG%')");
+      } else if (isUndergrad) {
+        whereClauses.push("(p.study_level LIKE '%Undergraduate%' OR p.study_level LIKE '%UG%')");
+      }
+
+      if (destinationCountry && destinationCountry !== "Not Decided" && destinationCountry !== "Other") {
+        const lowerCountry = destinationCountry.toLowerCase().trim();
+        if (lowerCountry === "united states" || lowerCountry === "usa") {
+          whereClauses.push("(p.country_name LIKE '%United States%' OR p.university_country LIKE '%United States%' OR p.country_name = 'USA')");
+        } else if (lowerCountry === "united kingdom" || lowerCountry === "uk") {
+          whereClauses.push("(p.country_name LIKE '%United Kingdom%' OR p.university_country LIKE '%United Kingdom%' OR p.country_name = 'UK')");
+        } else if (lowerCountry === "uae/middle east" || lowerCountry === "uae") {
+          whereClauses.push("(p.country_name LIKE '%United Arab Emirates%' OR p.country_name LIKE '%UAE%')");
+        } else if (lowerCountry === "singapore/apj" || lowerCountry === "singapore") {
+          whereClauses.push("(p.country_name LIKE '%Singapore%')");
+        } else if (lowerCountry === "eu/other") {
+          whereClauses.push("(p.country_name IN ('Germany', 'France', 'Spain', 'Italy', 'Ireland', 'Netherlands', 'Switzerland', 'Sweden', 'Austria', 'Belgium', 'Finland', 'Denmark'))");
+        } else {
+          whereClauses.push("(p.country_name LIKE ? OR p.university_country LIKE ?)");
+          queryParams.push(`%${destinationCountry}%`, `%${destinationCountry}%`);
+        }
+      }
+
+      whereClauses.push("p.country_name NOT IN ('Poland', 'India', 'Search and Selection (Non-Tie-up)')");
+
+      if (activeBacklogs > 6) {
+        whereClauses.push("(p.min_cgpa <= 6.5 OR p.min_cgpa IS NULL)");
+      } else if (activeBacklogs > 0) {
+        whereClauses.push("(p.min_cgpa <= 8.0 OR p.min_cgpa IS NULL)");
+      }
+
+      const sql = `
+        SELECT 
+          p.id, p.name as course_name, p.university_name, p.university_city, p.country_name,
+          p.study_level, p.tuition_amount, p.tuition_currency, p.min_cgpa, p.course_link,
+          p.deadlines, p.intakes, p.entry_requirement, p.scholarship_available, p.domain
+        FROM programs p
+        WHERE ${whereClauses.join(' AND ')}
+        ORDER BY 
+          CASE WHEN p.min_cgpa IS NOT NULL AND p.min_cgpa <= ? THEN 0 ELSE 1 END,
+          p.min_cgpa DESC
+        LIMIT 25
+      `;
+
+      queryParams.push(extractedCgpa);
+      const rows = db.prepare(sql).all(...queryParams);
+      return rows;
+    } catch (e) {
+      console.warn("[PROGRAMS_QUERY_WARN]", e);
+      return [];
+    }
+  }
+
   async analyze(text: string, context: string, manualCountry: string, manualIntake: string, aiStrictness: string = "standard", realtimeFetching: boolean = false, customAiEndpoint: string = "", isComparison: boolean = false, requestedModel: string = "", clientProvidedApiKey: string = "", manualEmail: string = "", manualPhone: string = "") {
     // Strictly identify real cloud serverless environments (Netlify / Vercel / AWS Lambda)
     const isCloudEnv = !!(
@@ -396,7 +559,8 @@ class LocalHeuristicBrain {
            "resume", "curriculum", "vitae", "cv", "profile", "contact", "portfolio", 
            "summary", "professional", "education", "experience", "technical", "skills", 
            "projects", "certifications", "portal", "student", "applicant", "application",
-           "details", "about", "objective", "work", "career", "overview", "course", "passport", "ielts", "backlogs"
+           "details", "about", "objective", "work", "career", "overview", "course", "passport", "ielts", "backlogs",
+           "phone", "mobile", "email", "mail", "tel", "call", "budget", "intake", "country", "preferred", "target"
        ];
 
        for (let i = 0; i < Math.min(lines.length, 5); i++) {
@@ -969,9 +1133,46 @@ class LocalHeuristicBrain {
 
     // 3.5 EXTRACT EXPLICIT TARGET COURSE / SPECIALIZATION (Runs before domain scoring to prioritize student's stated goal)
     let explicitTargetCourse = "";
-    const targetCourseMatch = lowerText.match(/(?:preferred course|target course|interested in|applying for|course|degree|program|specialization)\s*[:=\-]\s*([a-zA-Z0-9\.\s&/'-]+?)(?=$|\r?\n|[,;])/i);
-    if (targetCourseMatch && targetCourseMatch[1] && targetCourseMatch[1].trim().length > 1) {
-        explicitTargetCourse = targetCourseMatch[1].trim().replace(/\b\w/g, l => l.toUpperCase());
+
+    // 1. Explicit labels with or without colon / delimiter
+    const labelMatch = lowerText.match(/(?:preferred\s+(?:course|program|degree)|target\s+(?:course|program|degree)|interested\s+in|applying\s+for|course\s+preference|specialization|desired\s+course|opt(?:ing)?\s+for|aiming\s+for|course|program|degree)\s*[:=\-]?(?:\s+is|\s+to)?\s*([a-zA-Z0-9\.\s&/'-]+?)(?=$|\r?\n|[,;]|\b(?:with|having|completed|cgpa|budget|intake|country|fees?|ielts|toefl|in\s+(?:france|germany|usa|uk|canada|australia|ireland|new zealand|singapore|spain|italy|sweden|netherlands))\b)/i);
+    if (labelMatch && labelMatch[1] && labelMatch[1].trim().length > 1) {
+      const candidate = labelMatch[1].trim();
+      if (!/^(?:fall|spring|summer|usa|uk|canada|germany|france|australia|\d+)/i.test(candidate)) {
+        explicitTargetCourse = candidate.replace(/\b\w/g, l => l.toUpperCase());
+      }
+    }
+
+    // 2. Direct degree + subject pattern (e.g. 'masters in artificial intelligence', 'msc in ai')
+    if (!explicitTargetCourse) {
+      const degreeSubjectMatch = lowerText.match(/\b(master(?:s)?|bachelor(?:s)?|m\.?sc|b\.?sc|m\.?tech|b\.?tech|m\.?s|b\.?s|m\.?e|b\.?e|mba|ph\.?d|pgdm)\s+(?:in|of)\s+([a-zA-Z0-9\s&/'-]{2,50}?)(?=$|\r?\n|[,;]|\.|\b(?:with|having|completed|cgpa|budget|intake|country|fees?|in\s+(?:france|germany|usa|uk|canada|australia|ireland|new zealand|singapore|spain|italy|sweden|netherlands))\b)/i);
+      if (degreeSubjectMatch) {
+        explicitTargetCourse = `${degreeSubjectMatch[1]} in ${degreeSubjectMatch[2]}`.trim().replace(/\b\w/g, l => l.toUpperCase());
+      }
+    }
+
+    // 3. Known technical/business subject if mentioned
+    if (!explicitTargetCourse) {
+      const knownSubjects = [
+        'Artificial Intelligence', 'Machine Learning', 'Data Science', 'Data Analytics', 'Cybersecurity', 'Cyber Security',
+        'Cloud Computing', 'Software Engineering', 'Computer Science', 'Information Technology', 'Business Analytics',
+        'Digital Marketing', 'International Business', 'Finance', 'Accounting', 'Supply Chain Management',
+        'Mechanical Engineering', 'Civil Engineering', 'Electrical Engineering', 'Robotics', 'Biotechnology',
+        'Bioinformatics', 'Public Health', 'Psychology', 'Hospitality Management', 'Graphic Design'
+      ];
+      for (const subj of knownSubjects) {
+        const regex = new RegExp(`\\b${subj.replace(/\s+/g, '[\\s-]+')}\\b`, 'i');
+        if (regex.test(lowerText)) {
+          if (/\b(master|masters|msc|ms|mtech|pg)\b/i.test(lowerText)) {
+            explicitTargetCourse = `Masters in ${subj}`;
+          } else if (/\b(bachelor|bachelors|bsc|bs|btech|ug)\b/i.test(lowerText)) {
+            explicitTargetCourse = `Bachelors in ${subj}`;
+          } else {
+            explicitTargetCourse = subj;
+          }
+          break;
+        }
+      }
     }
 
     // Align degreeObjective if target course explicitly specifies degree level
@@ -1262,9 +1463,106 @@ class LocalHeuristicBrain {
     // Sort colleges by how close their minCgpa is to the student's cgpa (prefer higher ranked colleges that the student qualifies for)
     eligibleColleges.sort((a, b) => b.minCgpa - a.minCgpa);
 
-    let matchCount = 0;
+    // 6. QUERY ACTUAL DEGREE PROGRAMS FROM THE 99,219 PROGRAMS DATASET
+    const matchedPrograms = this.queryMatchingPrograms(
+      explicitTargetCourse || exactCourse,
+      destinationCountry,
+      degreeObjective,
+      primaryDomain,
+      extractedCgpa,
+      activeBacklogs
+    );
+
+    if (matchedPrograms.length > 0) {
+      for (const prog of matchedPrograms) {
+        if (result.recommendedColleges.length >= 15) break;
+
+        const minProgCgpa = typeof prog.min_cgpa === 'number' ? prog.min_cgpa : (parseFloat(prog.min_cgpa) || 6.0);
+        const cgpaDiff = extractedCgpa - minProgCgpa;
+
+        let category: "Reach" | "Target" | "Safety";
+        let matchPercentage = 0;
+
+        if (cgpaDiff >= 1.0) {
+          category = "Safety";
+          matchPercentage = Math.min(98, 92 + cgpaDiff * 2);
+        } else if (cgpaDiff >= 0) {
+          category = "Target";
+          matchPercentage = 80 + cgpaDiff * 10;
+        } else if (cgpaDiff >= -0.5 && aiStrictness !== "strict") {
+          category = "Reach";
+          matchPercentage = 70 + (1 - Math.abs(cgpaDiff)) * 10;
+        } else if (cgpaDiff >= -1.5) {
+          category = "Reach";
+          matchPercentage = 60 + (1.5 - Math.abs(cgpaDiff)) * 10;
+        } else {
+          category = "Reach";
+          matchPercentage = Math.max(50, 55 + (2.5 - Math.abs(cgpaDiff)) * 8);
+        }
+
+        let dynamicDeadline = prog.deadlines || "";
+        if (!dynamicDeadline || dynamicDeadline === "Rolling Admissions" || dynamicDeadline === "Fall, Spring") {
+          if (manualIntake.toLowerCase().includes("fall")) {
+            dynamicDeadline = category === "Reach" ? "Dec 15 - Jan 15" : "Feb 1 - Mar 15";
+          } else if (manualIntake.toLowerCase().includes("spring")) {
+            dynamicDeadline = category === "Reach" ? "Sep 1 - Oct 15" : "Oct 15 - Nov 30";
+          } else {
+            dynamicDeadline = "Rolling Admissions";
+          }
+        }
+
+        let tuitionConverted = "";
+        const rawTuition = typeof prog.tuition_amount === 'number'
+          ? prog.tuition_amount
+          : parseFloat(String(prog.tuition_amount || 0).replace(/[^\d.]/g, '')) || 0;
+
+        if (rawTuition === 0) {
+          tuitionConverted = " (Tuition-Free / €0)";
+        } else if (rawTuition > 0) {
+          const currCode = (prog.tuition_currency || 'USD').toUpperCase().trim();
+          const fromRate = rates[currCode] || FALLBACK_RATES[currCode] || 1;
+          const inrValue = (rawTuition / fromRate) * inrToUsdRate;
+          const lakhs = inrValue / 100000;
+          tuitionConverted = ` (≈ ₹${lakhs.toFixed(1)} Lakhs)`;
+        }
+
+        const formattedTuition = new Intl.NumberFormat('en-US', {
+          style: 'currency',
+          currency: prog.tuition_currency || 'USD',
+          maximumFractionDigits: 0
+        }).format(rawTuition);
+
+        const locationStr = prog.university_city 
+          ? `${prog.university_city}, ${prog.country_name}`
+          : prog.country_name;
+
+        result.recommendedColleges.push({
+          name: prog.university_name,
+          location: locationStr,
+          matchPercentage: Math.round(matchPercentage),
+          category: category,
+          rationale: `With a CGPA of ${extractedCgpa}, this is a ${category.toLowerCase()} school for ${prog.course_name}. Minimum admission benchmark is CGPA ${minProgCgpa}. Estimated tuition is ${formattedTuition}/year.`,
+          recommendedCourse: prog.course_name,
+          courseDetails: prog.entry_requirement 
+            ? `Accredited ${prog.study_level || 'degree'} track in ${prog.course_name}. Entry Criteria: ${prog.entry_requirement}`
+            : `Intensive academic track specializing in ${prog.course_name}. Features industry placement, career guidance, and accredited curriculum.`,
+          notablePrograms: [prog.domain ? prog.domain.toUpperCase() : primaryDomain.toUpperCase(), prog.study_level || "Degree", "Accredited"],
+          minCgpa: minProgCgpa,
+          tuition: rawTuition,
+          tuitionConverted: tuitionConverted,
+          acceptanceRate: category === "Safety" ? "80%" : category === "Target" ? "60%" : "35%",
+          campusSetting: "Urban",
+          currency: prog.tuition_currency || "USD",
+          applicationDeadline: dynamicDeadline,
+          courseLink: prog.course_link || undefined
+        });
+      }
+    }
+
+    // 7. COMPLEMENT WITH INSTITUTION DATABASE IF NEEDED
     for (const uni of eligibleColleges) {
-      if (matchCount >= 15) break; // Return top 15 matches
+      if (result.recommendedColleges.length >= 15) break;
+      if (result.recommendedColleges.some(c => c.name.toLowerCase() === uni.name.toLowerCase())) continue;
       
       let category: "Reach" | "Target" | "Safety";
       let matchPercentage = 0;
@@ -1284,11 +1582,9 @@ class LocalHeuristicBrain {
         category = "Reach";
         matchPercentage = 65 + ((1.5 - Math.abs(cgpaDiff)) * 10);
       } else if (cgpaDiff >= -2.5) {
-        // Ambitious reach — only include to pad the list up to 15
         category = "Reach";
         matchPercentage = Math.max(50, 55 + ((2.5 - Math.abs(cgpaDiff)) * 8));
       } else {
-        // Too far out of range, skip
         continue;
       }
       
@@ -1318,21 +1614,9 @@ class LocalHeuristicBrain {
          tuitionConverted = ` (≈ ₹${lakhs.toFixed(1)} Lakhs)`;
       }
 
+      const domainLabel = primaryDomain.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' & ');
       let dynamicCourse = "";
-      let pMasters = "Master's Degree";
-      let pBachelors = "Bachelor's Degree";
       
-      let parsedPrograms = null;
-      try { parsedPrograms = typeof uni.programs === 'string' ? JSON.parse(uni.programs) : uni.programs; } catch(e) {}
-      
-      if (parsedPrograms && Array.isArray(parsedPrograms) && parsedPrograms.length > 0) {
-          pMasters = "Masters in " + parsedPrograms[0];
-          pBachelors = "Bachelors in " + parsedPrograms[0];
-      } else if (parsedPrograms && typeof parsedPrograms === 'object' && !Array.isArray(parsedPrograms)) {
-          pMasters = parsedPrograms.masters || pMasters;
-          pBachelors = parsedPrograms.bachelors || pBachelors;
-      }
-
       if (explicitTargetCourse) {
           const prefix = (degreeObjective === "PhD / Doctorate") 
             ? "PhD in " 
@@ -1349,15 +1633,10 @@ class LocalHeuristicBrain {
           dynamicCourse = (cleanedTarget.length > 0)
             ? prefix + cleanedTarget.replace(/\b\w/g, l => l.toUpperCase())
             : explicitTargetCourse;
-      } else if (degreeObjective === "PhD / Doctorate") {
-          dynamicCourse = (parsedPrograms && !Array.isArray(parsedPrograms) && parsedPrograms.phd) ? parsedPrograms.phd : "Doctorate in " + pMasters.replace(/Master(?:s)? of |MS in |MSc in |MA in /i, "");
-      } else if (degreeObjective === "MBA") {
-          dynamicCourse = (parsedPrograms && !Array.isArray(parsedPrograms) && parsedPrograms.mba) ? parsedPrograms.mba : "MBA in " + pMasters.replace(/Master(?:s)? of |MS in |MSc in |MA in /i, "");
       } else {
-          dynamicCourse = (degreeObjective !== "Undergraduate" && degreeObjective !== "Diploma") ? pMasters : pBachelors;
+          const prefix = (degreeObjective === "PhD / Doctorate") ? "PhD in " : (degreeObjective === "MBA") ? "MBA in " : (degreeObjective !== "Undergraduate" && degreeObjective !== "Diploma") ? "Masters in " : "Bachelors in ";
+          dynamicCourse = `${prefix}${domainLabel}`;
       }
-
-      const domainLabel = primaryDomain.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' & ');
 
       result.recommendedColleges.push({
         name: uni.name,
@@ -1379,7 +1658,6 @@ class LocalHeuristicBrain {
         applicationDeadline: dynamicDeadline,
         courseLink: uni.courseLink || (uni as any).course_link || undefined
       });
-      matchCount++;
     }
 
     // Determine Target Currency for Fallback and Budgets
@@ -1950,26 +2228,41 @@ export async function POST(req: NextRequest) {
         let existingStudent: any = null;
         if (analysis.studentDetails.email && analysis.studentDetails.email !== "Not Provided") {
           try {
-            existingStudent = getDb().prepare(`SELECT id FROM students WHERE json_extract(studentDetails, '$.email') = ? COLLATE NOCASE AND counselor_id = ?`).get(analysis.studentDetails.email, counselorId) as any;
+            existingStudent = getDb().prepare(`SELECT id, studentDetails FROM students WHERE json_extract(studentDetails, '$.email') = ? COLLATE NOCASE AND counselor_id = ?`).get(analysis.studentDetails.email, counselorId) as any;
           } catch (e) {}
           if (!existingStudent) {
             try {
-              existingStudent = getDb().prepare(`SELECT id FROM students WHERE json_extract(studentDetails, '$.email') = ? COLLATE NOCASE`).get(analysis.studentDetails.email) as any;
+              existingStudent = getDb().prepare(`SELECT id, studentDetails FROM students WHERE json_extract(studentDetails, '$.email') = ? COLLATE NOCASE`).get(analysis.studentDetails.email) as any;
             } catch (e) {}
           }
         }
         if (!existingStudent && analysis.studentDetails.name && analysis.studentDetails.name !== "Unknown Student") {
           try {
-            existingStudent = getDb().prepare(`SELECT id FROM students WHERE json_extract(studentDetails, '$.name') = ? COLLATE NOCASE AND counselor_id = ?`).get(analysis.studentDetails.name, counselorId) as any;
+            existingStudent = getDb().prepare(`SELECT id, studentDetails FROM students WHERE json_extract(studentDetails, '$.name') = ? COLLATE NOCASE AND counselor_id = ?`).get(analysis.studentDetails.name, counselorId) as any;
           } catch (e) {}
           if (!existingStudent) {
             try {
-              existingStudent = getDb().prepare(`SELECT id FROM students WHERE json_extract(studentDetails, '$.name') = ? COLLATE NOCASE`).get(analysis.studentDetails.name) as any;
+              existingStudent = getDb().prepare(`SELECT id, studentDetails FROM students WHERE json_extract(studentDetails, '$.name') = ? COLLATE NOCASE`).get(analysis.studentDetails.name) as any;
             } catch (e) {}
           }
         }
         
         if (existingStudent) {
+           // Preserve previously saved email and phone if new analysis didn't extract them
+           try {
+             const oldDetails = typeof existingStudent.studentDetails === 'string'
+               ? JSON.parse(existingStudent.studentDetails)
+               : existingStudent.studentDetails;
+             if (oldDetails) {
+               if ((!analysis.studentDetails.email || analysis.studentDetails.email === "Not Provided") && oldDetails.email && oldDetails.email !== "Not Provided") {
+                 analysis.studentDetails.email = oldDetails.email;
+               }
+               if ((!analysis.studentDetails.phone || analysis.studentDetails.phone === "Not Provided") && oldDetails.phone && oldDetails.phone !== "Not Provided") {
+                 analysis.studentDetails.phone = oldDetails.phone;
+               }
+             }
+           } catch (e) {}
+
            const stmt = getDb().prepare(`
              UPDATE students SET 
                studentDetails = ?, studentSummary = ?, strengths = ?, areasForImprovement = ?,
