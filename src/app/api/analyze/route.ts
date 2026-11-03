@@ -1966,15 +1966,25 @@ Student: ${extractedName}${contactInfo ? ` | Contact: ${contactInfo}` : ''} | Go
                 ? customAiEndpoint
                 : '';
 
-            const defaultCloudEndpoint = 'https://orientation-humanities-inc-leg.trycloudflare.com/api/generate';
-
             const rawCandidates: string[] = [];
+
+            if (!isCloudEnv) {
+                // On-premise local server: ALWAYS prioritize direct local Ollama on loopback / LAN
+                rawCandidates.push(
+                    'http://127.0.0.1:11434/api/generate',
+                    'http://192.168.0.80:11434/api/generate',
+                    'http://127.0.0.1:11435/api/generate',
+                    'http://192.168.0.80:11435/api/generate'
+                );
+            }
+
             const configuredList = [
                 sanitizedCustom,
                 dbEndpoint,
                 fileStatusEndpoint,
                 envEndpoint,
-                defaultCloudEndpoint
+                'https://discussion-mile-campaign-statistics.trycloudflare.com/api/generate',
+                'https://orientation-humanities-inc-leg.trycloudflare.com/api/generate'
             ].filter(Boolean)
              .map((s: string) => cleanAndNormalizeUrl(String(s).trim()))
              .filter((s: string) => s && !s.includes('entrepreneurs-psp-navigate-maternity') && !s.includes('your-tunnel-subdomain') && !s.includes('millions-librarian-consumer-desktops') && !s.includes('developers.cloudflare.com'));
@@ -1986,17 +1996,6 @@ Student: ${extractedName}${contactInfo ? ` | Contact: ${contactInfo}` : ''} | Go
                 } else if (c.includes(':11434')) {
                     rawCandidates.push(c.replace(':11434', ':11435'));
                 }
-            }
-
-            if (!isCloudEnv) {
-                rawCandidates.push(
-                    'http://192.168.0.80:11434/api/generate',
-                    'http://192.168.0.80:11435/api/generate',
-                    'http://192.168.0.66:11434/api/generate',
-                    'http://192.168.0.66:11435/api/generate',
-                    'http://127.0.0.1:11434/api/generate',
-                    'http://127.0.0.1:11435/api/generate'
-                );
             }
 
             const candidateEndpoints = rawCandidates.filter((v, i, a) => a.indexOf(v) === i);

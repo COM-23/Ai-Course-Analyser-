@@ -630,7 +630,7 @@ export default function Home() {
   
   const [agencyName, setAgencyName] = useState("Learn Overseas");
   const [aiStrictness, setAiStrictness] = useState("standard");
-  const [customAiEndpoint, setCustomAiEndpoint] = useState<string>("https://orientation-humanities-inc-leg.trycloudflare.com/api/generate");
+  const [customAiEndpoint, setCustomAiEndpoint] = useState<string>("");
   const [aiHealthStatus, setAiHealthStatus] = useState<any>(null);
   const [isCheckingAi, setIsCheckingAi] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
@@ -676,11 +676,31 @@ export default function Home() {
       if (savedCollapse === 'true') {
         setIsSidebarCollapsed(true);
       }
-      const savedEndpoint = localStorage.getItem('learn_overseas_custom_ai_endpoint');
-      if (savedEndpoint && !savedEndpoint.includes('entrepreneurs-psp-navigate-maternity') && !savedEndpoint.includes('your-tunnel-subdomain') && !savedEndpoint.includes('millions-librarian-consumer-desktops') && !savedEndpoint.includes('developers.cloudflare.com')) {
+      let savedEndpoint = localStorage.getItem('learn_overseas_custom_ai_endpoint');
+      if (savedEndpoint && (
+        savedEndpoint.includes('entrepreneurs-psp-navigate-maternity') ||
+        savedEndpoint.includes('your-tunnel-subdomain') ||
+        savedEndpoint.includes('millions-librarian-consumer-desktops') ||
+        savedEndpoint.includes('developers.cloudflare.com')
+      )) {
+        try { localStorage.removeItem('learn_overseas_custom_ai_endpoint'); } catch (e) {}
+        savedEndpoint = null;
+      }
+
+      const isLocalHost = typeof window !== 'undefined' && (
+        window.location.hostname === 'localhost' ||
+        window.location.hostname === '127.0.0.1' ||
+        window.location.hostname.startsWith('192.168.') ||
+        window.location.hostname.startsWith('10.')
+      );
+
+      const defaultEp = isLocalHost
+        ? "http://192.168.0.80:11434/api/generate"
+        : "https://discussion-mile-campaign-statistics.trycloudflare.com/api/generate";
+
+      if (savedEndpoint) {
         setCustomAiEndpoint(cleanAndNormalizeAiUrl(savedEndpoint));
       } else {
-        const defaultEp = "https://orientation-humanities-inc-leg.trycloudflare.com/api/generate";
         setCustomAiEndpoint(defaultEp);
         try { localStorage.setItem('learn_overseas_custom_ai_endpoint', defaultEp); } catch (e) {}
       }
@@ -812,7 +832,15 @@ export default function Home() {
       ep = '';
     }
     if (!ep) {
-      ep = 'https://orientation-humanities-inc-leg.trycloudflare.com/api/generate';
+      const isLocal = typeof window !== 'undefined' && (
+        window.location.hostname === 'localhost' ||
+        window.location.hostname === '127.0.0.1' ||
+        window.location.hostname.startsWith('192.168.') ||
+        window.location.hostname.startsWith('10.')
+      );
+      ep = isLocal
+        ? 'http://192.168.0.80:11434/api/generate'
+        : 'https://discussion-mile-campaign-statistics.trycloudflare.com/api/generate';
     }
 
     let targetUrl = cleanAndNormalizeAiUrl(ep);
@@ -1118,7 +1146,15 @@ ${chatUser}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`;
             localEp = "";
             try { localStorage.removeItem('learn_overseas_custom_ai_endpoint'); } catch (e) {}
           }
-          const defaultEp = "https://orientation-humanities-inc-leg.trycloudflare.com/api/generate";
+          const isLocal = typeof window !== 'undefined' && (
+            window.location.hostname === 'localhost' ||
+            window.location.hostname === '127.0.0.1' ||
+            window.location.hostname.startsWith('192.168.') ||
+            window.location.hostname.startsWith('10.')
+          );
+          const defaultEp = isLocal
+            ? "http://192.168.0.80:11434/api/generate"
+            : "https://discussion-mile-campaign-statistics.trycloudflare.com/api/generate";
           const epToUse = (data.aiEndpoint && !data.aiEndpoint.includes('entrepreneurs-psp-navigate-maternity') && !data.aiEndpoint.includes('your-tunnel-subdomain') && !data.aiEndpoint.includes('millions-librarian-consumer-desktops') && !data.aiEndpoint.includes('developers.cloudflare.com'))
             ? data.aiEndpoint
             : (localEp || defaultEp);
@@ -1468,7 +1504,7 @@ ${chatUser}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`;
 
       // Dual-Failsafe: If Netlify returned Tier 3 fallback due to serverless gateway cutoff,
       // and we have an active on-premise tunnel endpoint, seamlessly finish genuine AI generation from browser!
-      const directEp = (customAiEndpoint || (data as any)?.aiEndpoint || (typeof window !== 'undefined' ? localStorage.getItem('learn_overseas_custom_ai_endpoint') || '' : '') || 'https://orientation-humanities-inc-leg.trycloudflare.com/api/generate').trim();
+      const directEp = (customAiEndpoint || (data as any)?.aiEndpoint || (typeof window !== 'undefined' ? localStorage.getItem('learn_overseas_custom_ai_endpoint') || '' : '') || 'https://discussion-mile-campaign-statistics.trycloudflare.com/api/generate').trim();
       if (!data.isAiGenerated && directEp && !directEp.includes('millions-librarian-consumer-desktops') && !directEp.includes('entrepreneurs-psp-navigate-maternity') && !directEp.includes('your-tunnel-subdomain') && !directEp.includes('developers.cloudflare.com')) {
         generateAiSummaryDirectly(data, directEp);
       } 
@@ -1620,7 +1656,7 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
           body: JSON.stringify(studentWithComparison)
         }).catch(() => {});
 
-        const directEp = (customAiEndpoint || (studentWithComparison as any)?.aiEndpoint || (typeof window !== 'undefined' ? localStorage.getItem('learn_overseas_custom_ai_endpoint') || '' : '') || 'https://orientation-humanities-inc-leg.trycloudflare.com/api/generate').trim();
+        const directEp = (customAiEndpoint || (studentWithComparison as any)?.aiEndpoint || (typeof window !== 'undefined' ? localStorage.getItem('learn_overseas_custom_ai_endpoint') || '' : '') || 'https://discussion-mile-campaign-statistics.trycloudflare.com/api/generate').trim();
         if (!studentWithComparison.isAiGenerated && directEp && !directEp.includes('millions-librarian-consumer-desktops') && !directEp.includes('entrepreneurs-psp-navigate-maternity') && !directEp.includes('your-tunnel-subdomain') && !directEp.includes('developers.cloudflare.com')) {
           generateAiSummaryDirectly(studentWithComparison, directEp);
         }
