@@ -2039,18 +2039,38 @@ Student: ${extractedName}${contactInfo ? ` | Contact: ${contactInfo}` : ''} | Go
             }
 
             // Synchronous inference timeout:
-            // Allow up to 24s so Ollama finishes inference cleanly without premature aborts
+            // Allow up to 30s so Ollama finishes inference cleanly without premature aborts
             // Local on-premise servers (Windows / Mac / Linux) allow 120 seconds.
-            const timeoutMs = isCloudEnv ? 24000 : 120000;
-            // 42 tokens generates the crisp 3-part structured summary in ~8-10s on CPU
-            const tokenLimit = isCloudEnv ? 42 : 100;
-            const overallDeadline = Date.now() + (isCloudEnv ? 24000 : 120000);
+            const timeoutMs = isCloudEnv ? 30000 : 120000;
+            // 350 tokens ensures all 3 sections complete fully without premature cutoff
+            const tokenLimit = 350;
+            const overallDeadline = Date.now() + (isCloudEnv ? 30000 : 120000);
 
             let ollamaResponse: Response | null = null;
             let lastAiError: any = null;
             let finalModelUsed = aiModel;
 
-            const chatSystemPrompt = "You are an expert university admission counselor AI. Format a crisp 3-part report with headings: **Academic Background**, **Financial & Location Preferences**, **Counselor Notes**.";
+            const chatSystemPrompt = `You are an expert university admission counselor AI. Format an exhaustive 3-part report for the student strictly following the exact structure below:
+
+Here is the 3-part report for [Student Name]:
+
+**Academic Background**
+
+* **Current Degree:** [Degree Name]
+* **CGPA:** [Score]/10
+* **Relevant Coursework:** [Subjects]
+* **Career Goal:** Pursuing a [Target Program]
+* **Relevant Experience:** [Experience]
+
+**Financial & Location Preferences**
+
+* **Target Destination:** [Country]
+* **Estimated Budget:** [Budget]
+* **Preferred Intake:** [Intake]
+
+**Counselor Notes**
+
+* [Strategic counselor evaluation and roadmap]`;
             const chatUserPrompt = `Student: ${extractedName} | Goal: ${degreeObjective} in ${degreeDisplay} | CGPA: ${extractedCgpa}/10 | Budget: ${targetSymbol}${convertedBudget.toLocaleString('en-US', {maximumFractionDigits: 0})} | Destination: ${countryDisplay} | Intake: ${manualIntake} | Notes: ${cleanNotes}`;
 
             for (const targetUrl of candidateEndpoints) {

@@ -125,11 +125,11 @@ Here is the 3-part report for [Student Name]:
             stream: false,
             keep_alive: "24h",
             options: {
-              num_predict: 200,
+              num_predict: 350,
               temperature: 0.1
             }
           }),
-          signal: AbortSignal.timeout(35000)
+          signal: AbortSignal.timeout(45000)
         });
 
         if (response && (response.status === 401 || response.status === 403)) {
@@ -146,11 +146,11 @@ Here is the 3-part report for [Student Name]:
               stream: false,
               keep_alive: "24h",
               options: {
-                num_predict: 200,
+                num_predict: 350,
                 temperature: 0.1
               }
             }),
-            signal: AbortSignal.timeout(35000)
+            signal: AbortSignal.timeout(45000)
           });
         }
 
@@ -166,11 +166,11 @@ Here is the 3-part report for [Student Name]:
               stream: false,
               keep_alive: "24h",
               options: {
-                num_predict: 200,
+                num_predict: 350,
                 temperature: 0.1
               }
             }),
-            signal: AbortSignal.timeout(35000)
+            signal: AbortSignal.timeout(45000)
           });
         }
 
@@ -212,3 +212,4 @@ Here is the 3-part report for [Student Name]:
     }, { status: 500 });
   }
 }
+
