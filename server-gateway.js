@@ -19,9 +19,17 @@ function hashKey(k) {
 }
 
 function getActiveKeyHashes() {
-  const activeHashes = new Set();
+  const activeHashes = new Set([
+    // Production frontend key (lo_live_qDYoGoQFKz7bM35ijtVa-9BwznoFZhqO)
+    '2549fde9e08dfb63e73324dcfebf3f757aed540f130d03d50462af9b698e599c',
+    // Vercel / Cloud frontend key
+    '96b091ef8586b4803375e017bac51bd1bc68fb3e4fb5598bcdddc0efd3faaa15'
+  ]);
   if (process.env.AI_SECRET_KEY) {
     activeHashes.add(hashKey(process.env.AI_SECRET_KEY));
+  }
+  if (process.env.LOCAL_AI_API_KEY) {
+    activeHashes.add(hashKey(process.env.LOCAL_AI_API_KEY));
   }
   if (fs.existsSync(KEYS_FILE)) {
     try {
@@ -50,34 +58,41 @@ const server = http.createServer((req, res) => {
   // CORS headers so cloud frontend can connect seamlessly
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-api-key');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-api-key, apikey');
 
   if (req.method === 'OPTIONS') {
     res.writeHead(204);
     return res.end();
   }
 
-  // Public lightweight health/ping endpoint for Keep-Alive daemon
-  if (req.url === '/ping' || req.url === '/healthz') {
+  const cleanUrl = (req.url || '').split('?')[0].replace(/\/+$/, '') || '/';
+
+  // Public lightweight health/ping endpoint for Keep-Alive daemon and UI Status Check
+  if (cleanUrl === '/ping' || cleanUrl === '/healthz') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     return res.end(JSON.stringify({ status: 'ok', gateway: true, timestamp: Date.now() }));
   }
 
   // Rewrite root POST or trailing slash to /api/generate so user endpoint works with or without /api/generate
-  if (req.method === 'POST' && (req.url === '/' || req.url === '')) {
+  if (req.method === 'POST' && (cleanUrl === '/' || cleanUrl === '')) {
     req.url = '/api/generate';
   }
 
-  // 1. Validate API Key
+  // 1. Validate API Key for AI generation requests
   const authHeader = req.headers['authorization'] || '';
-  const apiKeyHeader = req.headers['x-api-key'] || '';
+  const apiKeyHeader = req.headers['x-api-key'] || req.headers['apikey'] || '';
   
   const bearerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
   const providedKey = apiKeyHeader || bearerToken;
 
   const validHashes = getActiveKeyHashes();
   const providedHash = hashKey(providedKey);
-  if (!providedKey || !validHashes.has(providedHash)) {
+  const isAuthorized = providedKey && validHashes.has(providedHash);
+
+  // Allow non-mutating GET inspection probes (/api/tags, /api/version, /) through to Ollama
+  const isProbe = req.method === 'GET' && (cleanUrl === '/api/tags' || cleanUrl === '/api/version' || cleanUrl === '/');
+
+  if (!isAuthorized && !isProbe) {
     res.writeHead(401, { 'Content-Type': 'application/json' });
     return res.end(JSON.stringify({
       error: 'Unauthorized',
