@@ -181,7 +181,7 @@ async function scrapeLiveUniversities(domain: string, country: string, degreeObj
 }
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 26;
+export const maxDuration = 60;
 
 // THIS IS THE "BRAIN" - Built directly into the backend using a Keyword Heuristic Engine.
 // It analyzes text entirely locally in memory, no external endpoints. Now enhanced with local LLM.
@@ -1954,17 +1954,37 @@ Student: ${extractedName}${contactInfo ? ` | Contact: ${contactInfo}` : ''} | Go
             } catch (e) {}
 
             let envEndpoint = (process.env.LOCAL_AI_ENDPOINT || '').trim();
-            if (envEndpoint.includes('entrepreneurs-psp-navigate-maternity') || envEndpoint.includes('your-tunnel-subdomain') || envEndpoint.includes('millions-librarian-consumer-desktops') || envEndpoint.includes('developers.cloudflare.com')) {
+            if (
+                envEndpoint.includes('orientation-humanities-inc-leg') ||
+                envEndpoint.includes('discussion-mile-campaign-statistics') ||
+                envEndpoint.includes('entrepreneurs-psp-navigate-maternity') || 
+                envEndpoint.includes('your-tunnel-subdomain') || 
+                envEndpoint.includes('millions-librarian-consumer-desktops') || 
+                envEndpoint.includes('developers.cloudflare.com')
+            ) {
                 envEndpoint = '';
             }
 
-            if (dbEndpoint && (dbEndpoint.includes('entrepreneurs-psp-navigate-maternity') || dbEndpoint.includes('your-tunnel-subdomain') || dbEndpoint.includes('millions-librarian-consumer-desktops') || dbEndpoint.includes('developers.cloudflare.com'))) {
+            if (dbEndpoint && (
+                dbEndpoint.includes('orientation-humanities-inc-leg') ||
+                dbEndpoint.includes('discussion-mile-campaign-statistics') ||
+                dbEndpoint.includes('entrepreneurs-psp-navigate-maternity') || 
+                dbEndpoint.includes('your-tunnel-subdomain') || 
+                dbEndpoint.includes('millions-librarian-consumer-desktops') || 
+                dbEndpoint.includes('developers.cloudflare.com')
+            )) {
                 dbEndpoint = '';
             }
 
-            const sanitizedCustom = (customAiEndpoint && !customAiEndpoint.includes('entrepreneurs-psp-navigate-maternity') && !customAiEndpoint.includes('your-tunnel-subdomain') && !customAiEndpoint.includes('millions-librarian-consumer-desktops') && !customAiEndpoint.includes('developers.cloudflare.com'))
-                ? customAiEndpoint
-                : '';
+            const sanitizedCustom = (
+                customAiEndpoint && 
+                !customAiEndpoint.includes('orientation-humanities-inc-leg') &&
+                !customAiEndpoint.includes('discussion-mile-campaign-statistics') &&
+                !customAiEndpoint.includes('entrepreneurs-psp-navigate-maternity') && 
+                !customAiEndpoint.includes('your-tunnel-subdomain') && 
+                !customAiEndpoint.includes('millions-librarian-consumer-desktops') && 
+                !customAiEndpoint.includes('developers.cloudflare.com')
+            ) ? customAiEndpoint : '';
 
             const rawCandidates: string[] = [];
 
@@ -1983,11 +2003,17 @@ Student: ${extractedName}${contactInfo ? ` | Contact: ${contactInfo}` : ''} | Go
                 dbEndpoint,
                 fileStatusEndpoint,
                 envEndpoint,
-                'https://garmin-emotions-insured-dual.trycloudflare.com/api/generate',
-                'https://discussion-mile-campaign-statistics.trycloudflare.com/api/generate'
+                'https://garmin-emotions-insured-dual.trycloudflare.com/api/generate'
             ].filter(Boolean)
              .map((s: string) => cleanAndNormalizeUrl(String(s).trim()))
-             .filter((s: string) => s && !s.includes('entrepreneurs-psp-navigate-maternity') && !s.includes('your-tunnel-subdomain') && !s.includes('millions-librarian-consumer-desktops') && !s.includes('developers.cloudflare.com'));
+             .filter((s: string) => s && 
+                !s.includes('orientation-humanities-inc-leg') &&
+                !s.includes('discussion-mile-campaign-statistics') &&
+                !s.includes('entrepreneurs-psp-navigate-maternity') && 
+                !s.includes('your-tunnel-subdomain') && 
+                !s.includes('millions-librarian-consumer-desktops') && 
+                !s.includes('developers.cloudflare.com')
+             );
 
             for (const c of configuredList) {
                 rawCandidates.push(c);

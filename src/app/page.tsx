@@ -678,6 +678,8 @@ export default function Home() {
       }
       let savedEndpoint = localStorage.getItem('learn_overseas_custom_ai_endpoint');
       if (savedEndpoint && (
+        savedEndpoint.includes('orientation-humanities-inc-leg') ||
+        savedEndpoint.includes('discussion-mile-campaign-statistics') ||
         savedEndpoint.includes('entrepreneurs-psp-navigate-maternity') ||
         savedEndpoint.includes('your-tunnel-subdomain') ||
         savedEndpoint.includes('millions-librarian-consumer-desktops') ||
@@ -828,7 +830,14 @@ export default function Home() {
     if (!ep && aiHealthStatus?.endpoint) {
       ep = String(aiHealthStatus.endpoint).trim();
     }
-    if (ep.includes('entrepreneurs-psp-navigate-maternity') || ep.includes('your-tunnel-subdomain') || ep.includes('millions-librarian-consumer-desktops') || ep.includes('developers.cloudflare.com')) {
+    if (
+      ep.includes('orientation-humanities-inc-leg') ||
+      ep.includes('discussion-mile-campaign-statistics') ||
+      ep.includes('entrepreneurs-psp-navigate-maternity') ||
+      ep.includes('your-tunnel-subdomain') ||
+      ep.includes('millions-librarian-consumer-desktops') ||
+      ep.includes('developers.cloudflare.com')
+    ) {
       ep = '';
     }
     if (!ep) {
@@ -843,9 +852,6 @@ export default function Home() {
         : 'https://garmin-emotions-insured-dual.trycloudflare.com/api/generate';
     }
 
-    let targetUrl = cleanAndNormalizeAiUrl(ep);
-    let baseUrl = targetUrl.replace(/\/api\/generate\/?$/, '').replace(/\/api\/chat\/?$/, '').replace(/\/+$/, '');
-
     setIsGeneratingAiDirectly(true);
     try {
       const details = studentTarget.studentDetails;
@@ -855,139 +861,40 @@ export default function Home() {
       const sCgpa = details?.cgpa || "7.5";
       const sDest = details?.destinationCountry || "Global";
       const sBudget = studentTarget.estimatedBudgetRange || "Standard Budget";
-      const sMatches = (studentTarget.recommendedColleges || []).slice(0, 3).map(c => c.name).join(", ");
       const rawCtx = details?.originalContext || "";
       const isPureNum = /^[0-9$,.\s]+$/.test(rawCtx);
       const sNotes = (rawCtx && rawCtx.length > 3 && !isPureNum)
         ? rawCtx.slice(0, 100).replace(/\s+/g, ' ').trim()
         : "Standard admission assessment";
 
-      const chatSys = "You are an expert admission counselor AI. Format a concise 3-part report with headings: **Academic Background**, **Financial & Location Preferences**, **Counselor Notes**.";
-      const chatUser = `Student: ${sName} | Goal: ${sDegree} in ${sDomain} | CGPA: ${sCgpa}/10 | Budget: ${sBudget} | Destination: ${sDest} | Top Matches: ${sMatches || 'Identified'} | Notes: ${sNotes}`;
-
-      const directPrompt = `<|start_header_id|>system<|end_header_id|>
-${chatSys}<|eot_id|><|start_header_id|>user<|end_header_id|>
-${chatUser}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`;
-
-      const aiKey = 'lo_live_qDYoGoQFKz7bM35ijtVa-9BwznoFZhqO';
       const candidateModel = (aiHealthStatus?.model || aiHealthStatus?.models?.[0] || 'llama3.1:latest').trim();
 
-      let response: Response | null = null;
-      let usedModel = candidateModel;
+      // Call dedicated edge endpoint (/api/ai-chat) which proxies to on-premise tunnel without CORS or 10s limits
+      const res = await fetch('/api/ai-chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          studentName: sName,
+          degreeObjective: sDegree,
+          primaryDomain: sDomain,
+          cgpa: sCgpa,
+          budgetFormatted: sBudget,
+          destinationCountry: sDest,
+          intake: (details as any)?.intake || intake || "Fall 2026 / Fall 2027",
+          notes: sNotes,
+          model: candidateModel,
+          endpoint: ep
+        })
+      });
 
-      // 1. Send via /api/chat first (Llama 3 native chat format)
-      try {
-        response = await fetch(`${baseUrl}/api/chat`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${aiKey}`,
-            'x-api-key': aiKey
-          },
-          body: JSON.stringify({
-            model: candidateModel,
-            messages: [
-              { role: 'system', content: chatSys },
-              { role: 'user', content: chatUser }
-            ],
-            stream: false,
-            keep_alive: "60m",
-            options: {
-              num_predict: 80,
-              temperature: 0.1
-            }
-          }),
-          signal: AbortSignal.timeout(90000)
-        });
-      } catch (directErr) {
-        console.warn("Direct chat attempt failed:", directErr);
-      }
-
-      // Retry without auth if 401 or 403
-      if (response && !response.ok && (response.status === 401 || response.status === 403)) {
-        try {
-          response = await fetch(`${baseUrl}/api/chat`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              model: candidateModel,
-              messages: [
-                { role: 'system', content: chatSys },
-                { role: 'user', content: chatUser }
-              ],
-              stream: false,
-              keep_alive: "60m",
-              options: { num_predict: 80, temperature: 0.1 }
-            }),
-            signal: AbortSignal.timeout(90000)
-          });
-        } catch (e) {}
-      }
-
-      // 2. Fallback to /api/generate if /api/chat did not succeed
-      if (!response || !response.ok) {
-        try {
-          response = await fetch(`${baseUrl}/api/generate`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${aiKey}`,
-              'x-api-key': aiKey
-            },
-            body: JSON.stringify({
-              model: candidateModel,
-              prompt: directPrompt,
-              stream: false,
-              keep_alive: "60m",
-              options: { num_predict: 80, temperature: 0.1 }
-            }),
-            signal: AbortSignal.timeout(90000)
-          });
-        } catch (genErr) {}
-      }
-
-      if (response && !response.ok && response.status === 404) {
-        const altModels = [
-          candidateModel.includes(':') ? candidateModel.split(':')[0] : `${candidateModel}:latest`,
-          'llama3.1:latest',
-          'llama3.1',
-          'llama3.2:latest',
-          'llama3.2'
-        ].filter(m => m !== candidateModel);
-
-        for (const alt of altModels) {
-          try {
-            const altRes = await fetch(`${baseUrl}/api/chat`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${aiKey}`, 'x-api-key': aiKey },
-              body: JSON.stringify({
-                model: alt,
-                messages: [
-                  { role: 'system', content: chatSys },
-                  { role: 'user', content: chatUser }
-                ],
-                stream: false,
-                keep_alive: "60m",
-                options: { num_predict: 80, temperature: 0.1 }
-              }),
-              signal: AbortSignal.timeout(90000)
-            });
-            if (altRes.ok) {
-              response = altRes;
-              usedModel = alt;
-              break;
-            }
-          } catch (e) {}
-        }
-      }
-
-      if (response && response.ok) {
-        const data = await response.json();
-        const freshSummary = (data.message?.content || data.response || data.choices?.[0]?.message?.content || '').trim();
+      if (res.ok) {
+        const data = await res.json();
+        const freshSummary = (data.summary || '').trim();
         if (freshSummary) {
+          const usedModel = data.aiModelUsed || candidateModel;
           setAiHealthStatus({
             status: 'connected',
-            endpoint: targetUrl,
+            endpoint: data.endpoint || ep,
             model: usedModel
           });
           setResult(prev => {
@@ -1005,10 +912,10 @@ ${chatUser}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`;
           setHistory(prev => {
             const updated = prev.map(s => {
               if (s.id && studentTarget.id && s.id === studentTarget.id) {
-                return { ...s, studentSummary: freshSummary, isAiGenerated: true, aiError: undefined };
+                return { ...s, studentSummary: freshSummary, isAiGenerated: true, aiError: undefined, aiModelUsed: usedModel };
               }
               if (s.studentDetails?.name === sName) {
-                return { ...s, studentSummary: freshSummary, isAiGenerated: true, aiError: undefined };
+                return { ...s, studentSummary: freshSummary, isAiGenerated: true, aiError: undefined, aiModelUsed: usedModel };
               }
               return s;
             });
@@ -1028,9 +935,11 @@ ${chatUser}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`;
             }).catch(err => console.warn("Failed to persist updated summary to DB:", err));
           }
         }
+      } else {
+        console.warn("AI chat endpoint returned status:", res.status);
       }
     } catch (err: any) {
-      console.warn("Direct browser AI generation notice:", err?.message || err);
+      console.warn("Live AI generation notice:", err?.message || err);
     } finally {
       setIsGeneratingAiDirectly(false);
     }
@@ -1142,7 +1051,14 @@ ${chatUser}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`;
           if (data.aiStrictness) setAiStrictness(data.aiStrictness);
           let localEp = "";
           try { localEp = localStorage.getItem('learn_overseas_custom_ai_endpoint') || ""; } catch (e) {}
-          if (localEp && (localEp.includes('entrepreneurs-psp-navigate-maternity') || localEp.includes('your-tunnel-subdomain') || localEp.includes('millions-librarian-consumer-desktops') || localEp.includes('developers.cloudflare.com'))) {
+          if (localEp && (
+            localEp.includes('orientation-humanities-inc-leg') ||
+            localEp.includes('discussion-mile-campaign-statistics') ||
+            localEp.includes('entrepreneurs-psp-navigate-maternity') ||
+            localEp.includes('your-tunnel-subdomain') ||
+            localEp.includes('millions-librarian-consumer-desktops') ||
+            localEp.includes('developers.cloudflare.com')
+          )) {
             localEp = "";
             try { localStorage.removeItem('learn_overseas_custom_ai_endpoint'); } catch (e) {}
           }
@@ -1155,8 +1071,15 @@ ${chatUser}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`;
           const defaultEp = isLocal
             ? "http://192.168.0.80:11434/api/generate"
             : "https://garmin-emotions-insured-dual.trycloudflare.com/api/generate";
-          const epToUse = (data.aiEndpoint && !data.aiEndpoint.includes('entrepreneurs-psp-navigate-maternity') && !data.aiEndpoint.includes('your-tunnel-subdomain') && !data.aiEndpoint.includes('millions-librarian-consumer-desktops') && !data.aiEndpoint.includes('developers.cloudflare.com'))
-            ? data.aiEndpoint
+          const epToUse = (
+            data.aiEndpoint &&
+            !data.aiEndpoint.includes('orientation-humanities-inc-leg') &&
+            !data.aiEndpoint.includes('discussion-mile-campaign-statistics') &&
+            !data.aiEndpoint.includes('entrepreneurs-psp-navigate-maternity') &&
+            !data.aiEndpoint.includes('your-tunnel-subdomain') &&
+            !data.aiEndpoint.includes('millions-librarian-consumer-desktops') &&
+            !data.aiEndpoint.includes('developers.cloudflare.com')
+          ) ? data.aiEndpoint
             : (localEp || defaultEp);
           if (epToUse) {
             const clean = cleanAndNormalizeAiUrl(epToUse);
@@ -1504,9 +1427,8 @@ ${chatUser}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`;
 
       // Dual-Failsafe: If Netlify returned Tier 3 fallback due to serverless gateway cutoff,
       // and we have an active on-premise tunnel endpoint, seamlessly finish genuine AI generation from browser!
-      const directEp = (customAiEndpoint || (data as any)?.aiEndpoint || (typeof window !== 'undefined' ? localStorage.getItem('learn_overseas_custom_ai_endpoint') || '' : '') || 'https://garmin-emotions-insured-dual.trycloudflare.com/api/generate').trim();
-      if (!data.isAiGenerated && directEp && !directEp.includes('millions-librarian-consumer-desktops') && !directEp.includes('entrepreneurs-psp-navigate-maternity') && !directEp.includes('your-tunnel-subdomain') && !directEp.includes('developers.cloudflare.com')) {
-        generateAiSummaryDirectly(data, directEp);
+      if (!data.isAiGenerated) {
+        generateAiSummaryDirectly(data);
       } 
     } catch (err: any) {
       console.error(err);
@@ -1656,9 +1578,8 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
           body: JSON.stringify(studentWithComparison)
         }).catch(() => {});
 
-        const directEp = (customAiEndpoint || (studentWithComparison as any)?.aiEndpoint || (typeof window !== 'undefined' ? localStorage.getItem('learn_overseas_custom_ai_endpoint') || '' : '') || 'https://garmin-emotions-insured-dual.trycloudflare.com/api/generate').trim();
-        if (!studentWithComparison.isAiGenerated && directEp && !directEp.includes('millions-librarian-consumer-desktops') && !directEp.includes('entrepreneurs-psp-navigate-maternity') && !directEp.includes('your-tunnel-subdomain') && !directEp.includes('developers.cloudflare.com')) {
-          generateAiSummaryDirectly(studentWithComparison, directEp);
+        if (!studentWithComparison.isAiGenerated) {
+          generateAiSummaryDirectly(studentWithComparison);
         }
       }
     } catch (err) {

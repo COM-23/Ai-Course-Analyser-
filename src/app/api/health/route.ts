@@ -96,6 +96,8 @@ export async function GET(req: Request) {
 
   // 6. Filter out any obsolete or dead placeholders
   if (configuredEndpoint && (
+    configuredEndpoint.includes('orientation-humanities-inc-leg') ||
+    configuredEndpoint.includes('discussion-mile-campaign-statistics') ||
     configuredEndpoint.includes('entrepreneurs-psp-navigate-maternity') ||
     configuredEndpoint.includes('your-tunnel-subdomain') ||
     configuredEndpoint.includes('millions-librarian-consumer-desktops')
@@ -172,8 +174,7 @@ export async function GET(req: Request) {
   const candidateEndpoints = (isCloudEnv
     ? [
         ...configuredVariants,
-        'https://garmin-emotions-insured-dual.trycloudflare.com/api/generate',
-        'https://discussion-mile-campaign-statistics.trycloudflare.com/api/generate'
+        'https://garmin-emotions-insured-dual.trycloudflare.com/api/generate'
       ].filter(Boolean)
     : [
         'http://127.0.0.1:11434/api/generate',
