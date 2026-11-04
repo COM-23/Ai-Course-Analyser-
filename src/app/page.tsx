@@ -820,7 +820,7 @@ export default function Home() {
 
   const [isGeneratingAiDirectly, setIsGeneratingAiDirectly] = useState(false);
 
-  const generateAiSummaryDirectly = async (studentTarget: AnalysisResult, endpointOverride?: string) => {
+  const generateAiSummaryDirectly = async (studentTarget: AnalysisResult, endpointOverride?: string): Promise<AnalysisResult> => {
     let ep = (endpointOverride || customAiEndpoint || '').trim();
     if (!ep && typeof window !== 'undefined') {
       try {
@@ -853,6 +853,8 @@ export default function Home() {
     }
 
     setIsGeneratingAiDirectly(true);
+    let updatedStudent: AnalysisResult = { ...studentTarget };
+
     try {
       const details = studentTarget.studentDetails;
       const sName = details?.name || "Applicant";
@@ -897,8 +899,17 @@ export default function Home() {
             endpoint: data.endpoint || ep,
             model: usedModel
           });
+
+          updatedStudent = {
+            ...studentTarget,
+            studentSummary: freshSummary,
+            isAiGenerated: true,
+            aiError: undefined,
+            aiModelUsed: usedModel
+          };
+
           setResult(prev => {
-            if (!prev) return prev;
+            if (!prev) return updatedStudent;
             return {
               ...prev,
               studentSummary: freshSummary,
@@ -943,6 +954,8 @@ export default function Home() {
     } finally {
       setIsGeneratingAiDirectly(false);
     }
+
+    return updatedStudent;
   };
 
   const reportRef = useRef<HTMLDivElement>(null);
@@ -1305,6 +1318,10 @@ export default function Home() {
 
     setExpandedCollegeIdx(null); // Reset expansions on new search
 
+    if (!appendMode) {
+      setResult(null);
+    }
+
     setLoading(true);
     setError(null);
 
@@ -1383,32 +1400,48 @@ export default function Home() {
         data.studentDetails = { ...(data.studentDetails || {}), phone: studentPhone.trim() };
       }
 
-      setResult(data);
-      if (data.isAiGenerated) {
+      let finalData = data;
+
+      // In Netlify / Cloud environments, if the initial /api/analyze route deferred genuine AI inference
+      // to protect against serverless gateway timeouts, finish genuine AI generation via the secure tunnel
+      // BEFORE setting results or closing the loading state. The user will never see raw answers without AI.
+      if (!finalData.isAiGenerated) {
+        try {
+          const enhanced = await generateAiSummaryDirectly(finalData);
+          if (enhanced && enhanced.isAiGenerated) {
+            finalData = enhanced;
+          }
+        } catch (aiErr) {
+          console.warn("Direct on-premise AI generation notice:", aiErr);
+        }
+      }
+
+      setResult(finalData);
+      if (finalData.isAiGenerated) {
         setAiHealthStatus({
           status: 'connected',
           endpoint: customAiEndpoint || 'Active Server AI',
-          model: (data as any).aiModelUsed || 'llama3.1:latest'
+          model: (finalData as any).aiModelUsed || 'llama3.1:latest'
         });
       }
-      if (data?.studentDetails?.email && data.studentDetails.email !== "Not Provided") {
-        setStudentEmail(data.studentDetails.email);
+      if (finalData?.studentDetails?.email && finalData.studentDetails.email !== "Not Provided") {
+        setStudentEmail(finalData.studentDetails.email);
       }
-      if (data?.studentDetails?.phone && data.studentDetails.phone !== "Not Provided") {
-        setStudentPhone(data.studentDetails.phone);
+      if (finalData?.studentDetails?.phone && finalData.studentDetails.phone !== "Not Provided") {
+        setStudentPhone(finalData.studentDetails.phone);
       }
       setHistory(prev => {
         const existingIdx = prev.findIndex((s: any) => 
-          (data.id && s.id === data.id) || 
-          (data.studentDetails?.email && data.studentDetails.email !== "Not Provided" && s.studentDetails?.email === data.studentDetails.email) ||
-          (data.studentDetails?.name && data.studentDetails.name !== "Unknown Student" && s.studentDetails?.name && s.studentDetails.name.toLowerCase().trim() === data.studentDetails.name.toLowerCase().trim())
+          (finalData.id && s.id === finalData.id) || 
+          (finalData.studentDetails?.email && finalData.studentDetails.email !== "Not Provided" && s.studentDetails?.email === finalData.studentDetails.email) ||
+          (finalData.studentDetails?.name && finalData.studentDetails.name !== "Unknown Student" && s.studentDetails?.name && s.studentDetails.name.toLowerCase().trim() === finalData.studentDetails.name.toLowerCase().trim())
         );
         let newHistory: AnalysisResult[];
         if (existingIdx >= 0) {
           newHistory = [...prev];
-          newHistory[existingIdx] = data;
+          newHistory[existingIdx] = finalData;
         } else {
-          newHistory = [data, ...prev];
+          newHistory = [finalData, ...prev];
         }
         try {
           const storageKey = currentUser ? `learn_overseas_students_${currentUser.id}` : 'learn_overseas_students';
@@ -1422,14 +1455,8 @@ export default function Home() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify(data)
+        body: JSON.stringify(finalData)
       }).catch(() => {});
-
-      // Dual-Failsafe: If Netlify returned Tier 3 fallback due to serverless gateway cutoff,
-      // and we have an active on-premise tunnel endpoint, seamlessly finish genuine AI generation from browser!
-      if (!data.isAiGenerated) {
-        generateAiSummaryDirectly(data);
-      } 
     } catch (err: any) {
       console.error(err);
       setError(err.message || "An unexpected error occurred.");
@@ -1543,25 +1570,36 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
       if (accumulated.length > 0) {
         const baseStudent = result || accumulated[0];
         const targetId = activeStudentId ?? baseStudent?.id ?? Date.now();
-        const studentWithComparison: AnalysisResult = {
+        let finalComparisonStudent: AnalysisResult = {
           ...baseStudent,
           id: targetId,
           comparisonData: accumulated
         };
 
-        setResult(studentWithComparison);
+        if (!finalComparisonStudent.isAiGenerated) {
+          try {
+            const enhanced = await generateAiSummaryDirectly(finalComparisonStudent);
+            if (enhanced && enhanced.isAiGenerated) {
+              finalComparisonStudent = enhanced;
+            }
+          } catch (e) {
+            console.warn("Direct AI comparison summary notice:", e);
+          }
+        }
+
+        setResult(finalComparisonStudent);
         setHistory(prev => {
           const exists = prev.some(s => s.id === targetId || (s.studentDetails?.name && s.studentDetails.name === baseStudent?.studentDetails?.name));
           let updated: AnalysisResult[];
           if (exists) {
             updated = prev.map(s => {
               if (s.id === targetId || (s.studentDetails?.name && s.studentDetails.name === baseStudent?.studentDetails?.name)) {
-                return { ...s, comparisonData: accumulated };
+                return { ...s, comparisonData: accumulated, studentSummary: finalComparisonStudent.studentSummary, isAiGenerated: finalComparisonStudent.isAiGenerated };
               }
               return s;
             });
           } else {
-            updated = [studentWithComparison, ...prev];
+            updated = [finalComparisonStudent, ...prev];
           }
           try {
             const storageKey = currentUser ? `learn_overseas_students_${currentUser.id}` : 'learn_overseas_students';
@@ -1575,12 +1613,8 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
-          body: JSON.stringify(studentWithComparison)
+          body: JSON.stringify(finalComparisonStudent)
         }).catch(() => {});
-
-        if (!studentWithComparison.isAiGenerated) {
-          generateAiSummaryDirectly(studentWithComparison);
-        }
       }
     } catch (err) {
       console.error(err);
@@ -2376,15 +2410,19 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
               )}
 
               {loading && (
-                <div className="h-full flex flex-col items-center justify-center text-[#FC7133]">
+                <div className="h-full flex flex-col items-center justify-center text-[#FC7133] py-16">
                   <div className="w-12 h-12 border-4 border-[#FC7133]/20 border-t-[#FC7133] rounded-full animate-spin mb-6" />
-                  <p className="text-lg font-bold animate-pulse text-[#FC7133]">Running Neural Heuristics...</p>
-                  <p className="text-sm text-slate-500 mt-2">Processing profile against global database.</p>
+                  <p className="text-lg font-bold animate-pulse text-[#FC7133]">
+                    {isGeneratingAiDirectly ? "Synthesizing Profile with On-Premise AI..." : "Running Neural Heuristics..."}
+                  </p>
+                  <p className="text-sm text-slate-500 mt-2">
+                    {isGeneratingAiDirectly ? "Generating 3-part counselor assessment via secure tunnel..." : "Processing profile against global database."}
+                  </p>
                 </div>
               )}
 
               {/* Country Tabs when compare results exist */}
-              {compareResults.length > 0 && (
+              {!loading && compareResults.length > 0 && (
                 <div className="flex items-center gap-2 mb-6 flex-wrap">
                   <button
                     onClick={() => setActiveCompareTab(-1)}
@@ -2411,7 +2449,8 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
                 </div>
               )}
 
-              <div className="grid grid-cols-1 w-full">
+              {!loading && (
+                <div className="grid grid-cols-1 w-full">
                 {[activeCompareTab === -1 ? result : (compareResults.length > 0 ? (compareResults[activeCompareTab] ?? result) : result)].filter(Boolean).map((res: any, viewIdx: number) => (
                 <div key={viewIdx} ref={viewIdx === 0 ? reportRef : undefined} className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 p-4 -m-4 bg-[#111113] rounded-2xl">
                   
@@ -2860,6 +2899,7 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
                 </div>
               ))}
               </div>
+              )}
             </div>
           </div>
         </div>
