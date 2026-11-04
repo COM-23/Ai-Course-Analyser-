@@ -4,6 +4,122 @@ export interface ExchangeRates {
   timestamp: number;
 }
 
+// 45 real student destination countries directly from programs.csv dataset
+export const ALL_TARGET_COUNTRIES: string[] = [
+  "United States of America",
+  "United Kingdom",
+  "Canada",
+  "Australia",
+  "New Zealand",
+  "Ireland",
+  "Germany",
+  "France",
+  "Italy",
+  "Spain",
+  "Netherlands",
+  "Switzerland",
+  "Sweden",
+  "Singapore",
+  "United Arab Emirates",
+  "Malaysia",
+  "Japan",
+  "Austria",
+  "Bahrain",
+  "Belgium",
+  "China",
+  "Croatia",
+  "Cyprus",
+  "Czech Republic",
+  "Denmark",
+  "Finland",
+  "Georgia",
+  "Greece",
+  "Hungary",
+  "Indonesia",
+  "Kazakhstan",
+  "Latvia",
+  "Lithuania",
+  "Luxembourg",
+  "Malta",
+  "Mauritius",
+  "Monaco",
+  "Russia",
+  "Saudi Arabia",
+  "Slovenia",
+  "South Korea",
+  "Sri Lanka",
+  "Thailand",
+  "Turkey",
+  "Vietnam",
+  "Not Decided"
+];
+
+export const COUNTRY_CURRENCY_MAP: Record<string, { currency: string; symbol: string }> = {
+  "united states of america": { currency: "USD", symbol: "$" },
+  "united states": { currency: "USD", symbol: "$" },
+  "usa": { currency: "USD", symbol: "$" },
+  "united kingdom": { currency: "GBP", symbol: "£" },
+  "uk": { currency: "GBP", symbol: "£" },
+  "canada": { currency: "CAD", symbol: "CA$" },
+  "australia": { currency: "AUD", symbol: "AU$" },
+  "new zealand": { currency: "NZD", symbol: "NZ$" },
+  "ireland": { currency: "EUR", symbol: "€" },
+  "germany": { currency: "EUR", symbol: "€" },
+  "france": { currency: "EUR", symbol: "€" },
+  "italy": { currency: "EUR", symbol: "€" },
+  "spain": { currency: "EUR", symbol: "€" },
+  "netherlands": { currency: "EUR", symbol: "€" },
+  "switzerland": { currency: "CHF", symbol: "CHF " },
+  "sweden": { currency: "SEK", symbol: "kr " },
+  "singapore": { currency: "SGD", symbol: "S$" },
+  "singapore/apj": { currency: "SGD", symbol: "S$" },
+  "united arab emirates": { currency: "AED", symbol: "AED " },
+  "uae/middle east": { currency: "AED", symbol: "AED " },
+  "uae": { currency: "AED", symbol: "AED " },
+  "malaysia": { currency: "MYR", symbol: "RM " },
+  "japan": { currency: "JPY", symbol: "¥" },
+  "austria": { currency: "EUR", symbol: "€" },
+  "bahrain": { currency: "BHD", symbol: "BD " },
+  "belgium": { currency: "EUR", symbol: "€" },
+  "china": { currency: "CNY", symbol: "¥" },
+  "croatia": { currency: "EUR", symbol: "€" },
+  "cyprus": { currency: "EUR", symbol: "€" },
+  "czech republic": { currency: "EUR", symbol: "€" },
+  "denmark": { currency: "EUR", symbol: "€" },
+  "finland": { currency: "EUR", symbol: "€" },
+  "georgia": { currency: "USD", symbol: "$" },
+  "greece": { currency: "EUR", symbol: "€" },
+  "hungary": { currency: "EUR", symbol: "€" },
+  "indonesia": { currency: "IDR", symbol: "Rp " },
+  "kazakhstan": { currency: "USD", symbol: "$" },
+  "latvia": { currency: "EUR", symbol: "€" },
+  "lithuania": { currency: "EUR", symbol: "€" },
+  "luxembourg": { currency: "EUR", symbol: "€" },
+  "malta": { currency: "EUR", symbol: "€" },
+  "mauritius": { currency: "MUR", symbol: "Rs " },
+  "monaco": { currency: "EUR", symbol: "€" },
+  "russia": { currency: "USD", symbol: "$" },
+  "saudi arabia": { currency: "SAR", symbol: "SAR " },
+  "slovenia": { currency: "EUR", symbol: "€" },
+  "south korea": { currency: "KRW", symbol: "₩" },
+  "sri lanka": { currency: "USD", symbol: "$" },
+  "thailand": { currency: "THB", symbol: "฿" },
+  "turkey": { currency: "USD", symbol: "$" },
+  "vietnam": { currency: "VND", symbol: "₫" },
+  "india": { currency: "INR", symbol: "₹" },
+  "not decided": { currency: "USD", symbol: "$" }
+};
+
+export function getCountryCurrencyInfo(countryName: string): { currency: string; symbol: string } {
+  if (!countryName) return { currency: "USD", symbol: "$" };
+  const lower = countryName.toLowerCase().trim();
+  if (COUNTRY_CURRENCY_MAP[lower]) return COUNTRY_CURRENCY_MAP[lower];
+  for (const [key, val] of Object.entries(COUNTRY_CURRENCY_MAP)) {
+    if (lower.includes(key) || key.includes(lower)) return val;
+  }
+  return { currency: "USD", symbol: "$" };
+}
+
 // Comprehensive realistic 2026 market standards for all global student destinations
 export const FALLBACK_RATES: Record<string, number> = {
   USD: 1,

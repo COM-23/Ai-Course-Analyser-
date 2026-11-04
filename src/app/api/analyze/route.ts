@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { getExchangeRates, FALLBACK_RATES } from "@/lib/currency";
+import { getExchangeRates, FALLBACK_RATES, ALL_TARGET_COUNTRIES, getCountryCurrencyInfo } from "@/lib/currency";
 import * as cheerio from 'cheerio';
 import google from 'googlethis';
 import { jwtVerify } from 'jose';
@@ -563,23 +563,26 @@ class LocalHeuristicBrain {
 
       if (destinationCountry && destinationCountry !== "Not Decided" && destinationCountry !== "Other") {
         const lowerCountry = destinationCountry.toLowerCase().trim();
-        if (lowerCountry === "united states" || lowerCountry === "usa") {
+        if (lowerCountry === "united states" || lowerCountry === "usa" || lowerCountry === "united states of america") {
           whereClauses.push("(p.country_name LIKE '%United States%' OR p.university_country LIKE '%United States%' OR p.country_name = 'USA')");
         } else if (lowerCountry === "united kingdom" || lowerCountry === "uk") {
           whereClauses.push("(p.country_name LIKE '%United Kingdom%' OR p.university_country LIKE '%United Kingdom%' OR p.country_name = 'UK')");
-        } else if (lowerCountry === "uae/middle east" || lowerCountry === "uae") {
+        } else if (lowerCountry === "uae/middle east" || lowerCountry === "uae" || lowerCountry === "united arab emirates") {
           whereClauses.push("(p.country_name LIKE '%United Arab Emirates%' OR p.country_name LIKE '%UAE%')");
         } else if (lowerCountry === "singapore/apj" || lowerCountry === "singapore") {
           whereClauses.push("(p.country_name LIKE '%Singapore%')");
         } else if (lowerCountry === "eu/other") {
-          whereClauses.push("(p.country_name IN ('Germany', 'France', 'Spain', 'Italy', 'Ireland', 'Netherlands', 'Switzerland', 'Sweden', 'Austria', 'Belgium', 'Finland', 'Denmark'))");
+          whereClauses.push("(p.country_name IN ('Germany', 'France', 'Spain', 'Italy', 'Ireland', 'Netherlands', 'Switzerland', 'Sweden', 'Austria', 'Belgium', 'Finland', 'Denmark', 'Czech Republic', 'Hungary', 'Poland', 'Greece', 'Cyprus', 'Malta', 'Lithuania', 'Latvia', 'Croatia', 'Slovenia', 'Luxembourg'))");
         } else {
           whereClauses.push("(p.country_name LIKE ? OR p.university_country LIKE ?)");
           queryParams.push(`%${destinationCountry}%`, `%${destinationCountry}%`);
         }
       }
 
-      whereClauses.push("p.country_name NOT IN ('Poland', 'India', 'Search and Selection (Non-Tie-up)')");
+      whereClauses.push("p.country_name NOT IN ('India', 'Search and Selection (Non-Tie-up)')");
+      if (destinationCountry && destinationCountry.toLowerCase().trim() !== 'poland') {
+        whereClauses.push("p.country_name != 'Poland'");
+      }
 
       if (activeBacklogs > 6) {
         whereClauses.push("(p.min_cgpa <= 6.5 OR p.min_cgpa IS NULL)");
@@ -1114,51 +1117,6 @@ class LocalHeuristicBrain {
       extractedOriginalGrade = `${extractedCgpa} / 10`;
     }
 
-    // 3. EXTRACT BUDGET & CURRENCY CONVERSION (Supporting USD, INR, Lakhs)
-    let extractedBudget = 50000; // Default budget USD
-    
-    // Check for Lakhs (e.g. "50 Lakhs", "40 lacs", "30 peti") - Made context optional to catch all instances
-    const lakhMatch = lowerText.match(/(?:budget|funds|financials|affordable|max|spend|afford|around)?[\sa-zA-Z:-]{0,20}(?:inr|rs|₹)?\s*([0-9\.]+)\s*(?:lakhs?|lacs?|peti|l)\b/i);
-    
-    // Check for raw INR (e.g. "4000000 INR", "Rs 40,00,000")
-    const inrMatch = lowerText.match(/(?:budget|funds|financials|affordable|max|spend|afford|around)?[\sa-zA-Z:-]{0,20}(?:inr|rs|₹|rupees?)[\s]*([0-9,]{5,})/i) 
-                  || lowerText.match(/([0-9,]{5,})\s*(?:inr|rupees)/i);
-
-    // Check for EUR
-    const eurMatch = lowerText.match(/(?:budget|funds|financials|affordable|max|spend|afford|around)?[\sa-zA-Z:-]{0,20}(?:eur|euros?|€)[\s]*([0-9,]{4,})/i) 
-                  || lowerText.match(/([0-9,]{4,})\s*(?:eur|euros?|€)/i);
-
-    // Check for GBP
-    const gbpMatch = lowerText.match(/(?:budget|funds|financials|affordable|max|spend|afford|around)?[\sa-zA-Z:-]{0,20}(?:gbp|pounds?|£)[\s]*([0-9,]{4,})/i) 
-                  || lowerText.match(/([0-9,]{4,})\s*(?:gbp|pounds?|£)/i);
-
-    // Check for CAD
-    const cadMatch = lowerText.match(/(?:budget|funds|financials|affordable|max|spend|afford|around)?[\sa-zA-Z:-]{0,20}(?:cad|ca\$|c\$)[\s]*([0-9,]{4,})/i) 
-                  || lowerText.match(/([0-9,]{4,})\s*(?:cad|canadian dollars?)/i);
-
-    // Check for AUD
-    const audMatch = lowerText.match(/(?:budget|funds|financials|affordable|max|spend|afford|around)?[\sa-zA-Z:-]{0,20}(?:aud|au\$|a\$)[\s]*([0-9,]{4,})/i) 
-                  || lowerText.match(/([0-9,]{4,})\s*(?:aud|australian dollars?)/i);
-
-    // Check for AED
-    const aedMatch = lowerText.match(/(?:budget|funds|financials|affordable|max|spend|afford|around)?[\sa-zA-Z:-]{0,20}(?:aed|dirhams?)[\s]*([0-9,]{4,})/i) 
-                  || lowerText.match(/([0-9,]{4,})\s*(?:aed|dirhams?)/i);
-
-    // Check for SGD
-    const sgdMatch = lowerText.match(/(?:budget|funds|financials|affordable|max|spend|afford|around)?[\sa-zA-Z:-]{0,20}(?:sgd|s\$)[\s]*([0-9,]{4,})/i) 
-                  || lowerText.match(/([0-9,]{4,})\s*(?:sgd|singapore dollars?)/i);
-    
-    // Check for standard numbers/USD (e.g. "$50,000", "50000")
-    const generalMatch = lowerText.match(/(?:budget|funds|financials|affordable|max|spend|afford|around)[\sa-zA-Z:-]{0,20}(?:usd|\$)?\s*([0-9,]+)/i) || lowerText.match(/(?:usd|\$)[\s]*([0-9,]+)/i);
-
-    // Fallback Math Sniffers (no currency words needed)
-    const massiveNumberSniffer = lowerText.match(/(?:\s|^)([1-9][0-9,]{5,})(?:\s|$)/); // > 100,000 (INR)
-    // Require at least 5 digits (e.g., 10000, 50,000) for unlabelled USD to avoid matching years (2025) or SAT scores (1500)
-    const usdNumberSniffer = lowerText.match(/(?:\s|^)([1-9][0-9]{4}|[1-9][0-9],[0-9]{3})(?:\s|$)/); // 10,000 - 99,999 (USD)
-
-    // Check for "k" notation (e.g. "50k", "$80k")
-    const kMatch = lowerText.match(/(?:budget|funds|max|spend)?[\s\w:-]{0,20}(?:usd|\$)?\s*([0-9]{2,3})\s*k\b/i) || lowerText.match(/(?:usd|\$)\s*([0-9]{2,3})\s*k\b/i);
-
     // Fetch Real-time Exchange Rates
     let rates: Record<string, number> = FALLBACK_RATES;
     try {
@@ -1166,63 +1124,160 @@ class LocalHeuristicBrain {
     } catch (e) {
       console.warn("Using fallback exchange rates", e);
     }
-    const inrToUsdRate = rates.INR || 86.5;
+    const inrToUsdRate = rates.INR || 94.9;
 
+    // 3. EXTRACT BUDGET & CURRENCY CONVERSION (Supporting USD, INR, Lakhs)
+    let extractedBudget = 0; // 0 indicates unstated, will derive from matched programs
+    let hasExplicitBudget = false;
     let inputCurrency = "USD";
 
-    if (lakhMatch && lakhMatch[1]) {
-      inputCurrency = "INR";
-      const lakhs = parseFloat(lakhMatch[1]);
-      extractedBudget = (lakhs * 100000) / inrToUsdRate;
-    } else if (inrMatch && inrMatch[1]) {
-      inputCurrency = "INR";
-      const parsed = parseInt(inrMatch[1].replace(/,/g, ''));
-      extractedBudget = parsed / inrToUsdRate;
-    } else if (eurMatch && eurMatch[1]) {
-      inputCurrency = "EUR";
-      const parsed = parseInt(eurMatch[1].replace(/,/g, ''));
-      extractedBudget = parsed / (rates.EUR || 0.91);
-    } else if (gbpMatch && gbpMatch[1]) {
-      inputCurrency = "GBP";
-      const parsed = parseInt(gbpMatch[1].replace(/,/g, ''));
-      extractedBudget = parsed / (rates.GBP || 0.77);
-    } else if (cadMatch && cadMatch[1]) {
-      inputCurrency = "CAD";
-      const parsed = parseInt(cadMatch[1].replace(/,/g, ''));
-      extractedBudget = parsed / (rates.CAD || 1.39);
-    } else if (audMatch && audMatch[1]) {
-      inputCurrency = "AUD";
-      const parsed = parseInt(audMatch[1].replace(/,/g, ''));
-      extractedBudget = parsed / (rates.AUD || 1.48);
-    } else if (aedMatch && aedMatch[1]) {
-      inputCurrency = "AED";
-      const parsed = parseInt(aedMatch[1].replace(/,/g, ''));
-      extractedBudget = parsed / (rates.AED || 3.67);
-    } else if (sgdMatch && sgdMatch[1]) {
-      inputCurrency = "SGD";
-      const parsed = parseInt(sgdMatch[1].replace(/,/g, ''));
-      extractedBudget = parsed / (rates.SGD || 1.33);
-    } else if (kMatch && kMatch[1]) {
-      inputCurrency = "USD";
-      extractedBudget = parseInt(kMatch[1]) * 1000;
-    } else if (generalMatch && generalMatch[1]) {
-      const parsed = parseInt(generalMatch[1].replace(/,/g, ''));
-      if (parsed > 500000) { 
-        inputCurrency = "INR";
-        extractedBudget = parsed / inrToUsdRate;
-      } else if (parsed > 5000) {
-        inputCurrency = "USD";
-        extractedBudget = parsed;
+    // 3a. Priority 1: Check user-entered budget constraint in the form context
+    const cleanContext = (context || "").trim();
+    if (cleanContext.length > 0) {
+      // Check for Lakhs / Lacs: e.g. "50 Lakhs", "40 lacs", "35L", "₹35L"
+      const lakhCtx = cleanContext.match(/([0-9]+(?:\.[0-9]+)?)\s*(?:lakhs?|lacs?|peti|\s*l\b)/i);
+      // Check for Crores: e.g. "1.5 Cr", "1 Crore"
+      const crCtx = cleanContext.match(/([0-9]+(?:\.[0-9]+)?)\s*(?:crores?|cr\b)/i);
+      // Check for INR / Rs
+      const inrCtx = cleanContext.match(/(?:inr|rs\.?|₹)\s*([0-9,]+)/i) || cleanContext.match(/([0-9,]+)\s*(?:inr|rupees)/i);
+      // Check for USD / $
+      const usdCtx = cleanContext.match(/(?:usd|\$)\s*([0-9,]+)/i);
+      // Check for CAD
+      const cadCtx = cleanContext.match(/(?:cad|ca\$)\s*([0-9,]+)/i);
+      // Check for AUD
+      const audCtx = cleanContext.match(/(?:aud|au\$)\s*([0-9,]+)/i);
+      // Check for NZD
+      const nzdCtx = cleanContext.match(/(?:nzd|nz\$)\s*([0-9,]+)/i);
+      // Check for EUR / €
+      const eurCtx = cleanContext.match(/(?:eur|€)\s*([0-9,]+)/i);
+      // Check for GBP / £
+      const gbpCtx = cleanContext.match(/(?:gbp|£)\s*([0-9,]+)/i);
+      // Check for 'k' notation: e.g. "50k", "$80k"
+      const kCtx = cleanContext.match(/(?:usd|\$)?\s*([0-9]{2,3})\s*k\b/i);
+
+      if (lakhCtx) {
+        const l = parseFloat(lakhCtx[1]);
+        if (l >= 1 && l <= 250) {
+          inputCurrency = "INR";
+          extractedBudget = Math.round((l * 100000) / inrToUsdRate);
+          hasExplicitBudget = true;
+        }
+      } else if (crCtx) {
+        const c = parseFloat(crCtx[1]);
+        if (c >= 0.1 && c <= 3.0) {
+          inputCurrency = "INR";
+          extractedBudget = Math.round((c * 10000000) / inrToUsdRate);
+          hasExplicitBudget = true;
+        }
+      } else if (inrCtx) {
+        const val = parseInt(inrCtx[1].replace(/,/g, ''), 10);
+        if (val >= 200000 && val <= 25000000) {
+          inputCurrency = "INR";
+          extractedBudget = Math.round(val / inrToUsdRate);
+          hasExplicitBudget = true;
+        }
+      } else if (usdCtx) {
+        const val = parseInt(usdCtx[1].replace(/,/g, ''), 10);
+        if (val >= 3000 && val <= 250000) {
+          inputCurrency = "USD";
+          extractedBudget = val;
+          hasExplicitBudget = true;
+        }
+      } else if (eurCtx) {
+        const val = parseInt(eurCtx[1].replace(/,/g, ''), 10);
+        if (val >= 2500 && val <= 200000) {
+          inputCurrency = "EUR";
+          extractedBudget = Math.round(val / (rates.EUR || 0.892));
+          hasExplicitBudget = true;
+        }
+      } else if (gbpCtx) {
+        const val = parseInt(gbpCtx[1].replace(/,/g, ''), 10);
+        if (val >= 2000 && val <= 200000) {
+          inputCurrency = "GBP";
+          extractedBudget = Math.round(val / (rates.GBP || 0.747));
+          hasExplicitBudget = true;
+        }
+      } else if (audCtx) {
+        const val = parseInt(audCtx[1].replace(/,/g, ''), 10);
+        if (val >= 5000 && val <= 250000) {
+          inputCurrency = "AUD";
+          extractedBudget = Math.round(val / (rates.AUD || 1.425));
+          hasExplicitBudget = true;
+        }
+      } else if (cadCtx) {
+        const val = parseInt(cadCtx[1].replace(/,/g, ''), 10);
+        if (val >= 5000 && val <= 250000) {
+          inputCurrency = "CAD";
+          extractedBudget = Math.round(val / (rates.CAD || 1.401));
+          hasExplicitBudget = true;
+        }
+      } else if (nzdCtx) {
+        const val = parseInt(nzdCtx[1].replace(/,/g, ''), 10);
+        if (val >= 5000 && val <= 250000) {
+          inputCurrency = "NZD";
+          extractedBudget = Math.round(val / (rates.NZD || 1.760));
+          hasExplicitBudget = true;
+        }
+      } else if (kCtx) {
+        const val = parseInt(kCtx[1], 10) * 1000;
+        if (val >= 5000 && val <= 250000) {
+          inputCurrency = "USD";
+          extractedBudget = val;
+          hasExplicitBudget = true;
+        }
+      } else {
+        // Plain number in context box
+        const numMatch = cleanContext.match(/[0-9]{1,3}(?:,[0-9]{3})+|[0-9]{4,8}/);
+        if (numMatch) {
+          const val = parseInt(numMatch[0].replace(/,/g, ''), 10);
+          if (val >= 500000 && val <= 25000000) {
+            inputCurrency = "INR";
+            extractedBudget = Math.round(val / inrToUsdRate);
+            hasExplicitBudget = true;
+          } else if (val >= 5000 && val <= 250000) {
+            inputCurrency = "USD";
+            extractedBudget = val;
+            hasExplicitBudget = true;
+          }
+        }
       }
-    } else if (massiveNumberSniffer && massiveNumberSniffer[1]) {
-      // Pure math fallback for huge unlabelled numbers
-      inputCurrency = "INR";
-      const parsed = parseInt(massiveNumberSniffer[1].replace(/,/g, ''));
-      extractedBudget = parsed / inrToUsdRate;
-    } else if (usdNumberSniffer && usdNumberSniffer[1]) {
-      // Pure math fallback for medium unlabelled numbers
-      inputCurrency = "USD";
-      extractedBudget = parseInt(usdNumberSniffer[1].replace(/,/g, ''));
+    }
+
+    // 3b. Priority 2: If not in context, search resume/text ONLY with strict financial keywords
+    if (!hasExplicitBudget) {
+      // Look for explicit budget phrases in text (never unanchored phone/ID numbers)
+      const lakhMatch = lowerText.match(/(?:budget|funds|financials?|affordable|max|spend|afford|tuition)[\sa-zA-Z:-]{0,20}(?:inr|rs\.?|₹)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:lakhs?|lacs?|peti|\s*l\b)/i)
+                     || lowerText.match(/(?:inr|rs\.?|₹)\s*([0-9]+(?:\.[0-9]+)?)\s*(?:lakhs?|lacs?|peti)/i);
+      const inrMatch = lowerText.match(/(?:budget|funds|financials?|affordable|max|spend|afford|tuition)[\sa-zA-Z:-]{0,20}(?:inr|rs\.?|₹|rupees?)[\s]*([0-9,]{5,8})\b/i);
+      const usdMatch = lowerText.match(/(?:budget|funds|financials?|affordable|max|spend|afford|tuition)[\sa-zA-Z:-]{0,20}(?:usd|\$)\s*([0-9,]{4,7})\b/i);
+
+      if (lakhMatch) {
+        const l = parseFloat(lakhMatch[1]);
+        if (l >= 1 && l <= 200) {
+          inputCurrency = "INR";
+          extractedBudget = Math.round((l * 100000) / inrToUsdRate);
+          hasExplicitBudget = true;
+        }
+      } else if (inrMatch) {
+        const val = parseInt(inrMatch[1].replace(/,/g, ''), 10);
+        // Explicit phone number rejection: 10 digits
+        if (!/^[6-9][0-9]{9}$/.test(String(val)) && val >= 200000 && val <= 20000000) {
+          inputCurrency = "INR";
+          extractedBudget = Math.round(val / inrToUsdRate);
+          hasExplicitBudget = true;
+        }
+      } else if (usdMatch) {
+        const val = parseInt(usdMatch[1].replace(/,/g, ''), 10);
+        if (val >= 3000 && val <= 250000) {
+          inputCurrency = "USD";
+          extractedBudget = val;
+          hasExplicitBudget = true;
+        }
+      }
+    }
+
+    if (!hasExplicitBudget || extractedBudget <= 0) {
+      extractedBudget = 35000; // Baseline USD indicator if unstated
     }
     extractedBudget = Math.round(extractedBudget);
 
@@ -1803,38 +1858,59 @@ class LocalHeuristicBrain {
       });
     }
 
-    // Determine Target Currency for Fallback and Budgets
-    let targetCurrency = "USD";
-    let targetSymbol = "$";
+    // Determine Target Currency for Destination Country from 45-country mapping
+    const countryInfo = getCountryCurrencyInfo(destinationCountry);
+    let targetCurrency = countryInfo.currency;
+    let targetSymbol = countryInfo.symbol;
 
-    const countryMap = destinationCountry.toLowerCase();
-    if (countryMap === "united kingdom" || countryMap === "uk") { targetCurrency = "GBP"; targetSymbol = "£"; }
-    else if (countryMap === "canada") { targetCurrency = "CAD"; targetSymbol = "CA$"; }
-    else if (countryMap === "australia") { targetCurrency = "AUD"; targetSymbol = "AU$"; }
-    else if (countryMap === "new zealand") { targetCurrency = "NZD"; targetSymbol = "NZ$"; }
-    else if (["germany", "spain", "france", "ireland", "italy", "eu/other"].includes(countryMap)) { targetCurrency = "EUR"; targetSymbol = "€"; }
-    else if (countryMap === "uae/middle east") { targetCurrency = "AED"; targetSymbol = "AED "; }
-    else if (countryMap === "singapore/apj") { targetCurrency = "SGD"; targetSymbol = "S$"; }
-    else if (countryMap === "malaysia") { targetCurrency = "MYR"; targetSymbol = "RM "; }
-    else if (inputCurrency === "INR" && (countryMap === "not decided" || countryMap === "india")) { targetCurrency = "INR"; targetSymbol = "₹"; }
+    if (inputCurrency === "INR" && (destinationCountry.toLowerCase() === "not decided" || destinationCountry.toLowerCase() === "india")) {
+      targetCurrency = "INR";
+      targetSymbol = "₹";
+    }
 
-    const rateMultiplier = rates[targetCurrency] || 1;
+    const rateMultiplier = rates[targetCurrency] || FALLBACK_RATES[targetCurrency] || 1;
 
-    // Mock universities completely removed per system directive to ensure strictly real institutions from dataset.
+    // Real Data Budget Calculation based on matched universities in dataset
+    const matchedTuitions = result.recommendedColleges
+      .map(c => {
+        if (typeof c.tuition === 'number' && c.tuition > 0) return c.tuition;
+        const num = parseFloat(String(c.tuition || '').replace(/[^\d.]/g, ''));
+        return !isNaN(num) && num > 0 ? num : 0;
+      })
+      .filter(t => t > 0);
 
-    // Fallback logic completely removed. If no colleges match, we return an empty array to maintain strict accuracy.
+    let displayMinTuition = 0;
+    let displayMaxTuition = 0;
 
-    const minBudget = Math.max(10000 * rateMultiplier, (extractedBudget - 10000) * rateMultiplier);
-    const maxBudget = (extractedBudget + 20000) * rateMultiplier;
+    if (matchedTuitions.length > 0) {
+      matchedTuitions.sort((a, b) => a - b);
+      displayMinTuition = Math.round(matchedTuitions[0]);
+      displayMaxTuition = Math.round(matchedTuitions[matchedTuitions.length - 1]);
+      // If min and max are identical, present a realistic +/- 10% range
+      if (displayMinTuition === displayMaxTuition) {
+        displayMinTuition = Math.round(displayMinTuition * 0.9);
+        displayMaxTuition = Math.round(displayMaxTuition * 1.1);
+      }
+    } else if (hasExplicitBudget && extractedBudget > 0) {
+      // Calculate from student's specified budget converted to target currency
+      displayMinTuition = Math.round(extractedBudget * rateMultiplier * 0.85);
+      displayMaxTuition = Math.round(extractedBudget * rateMultiplier * 1.15);
+    } else {
+      // Realistic default country educational standard (e.g. $28,000 - $45,000 USD converted to target currency)
+      displayMinTuition = Math.round(28000 * rateMultiplier);
+      displayMaxTuition = Math.round(45000 * rateMultiplier);
+    }
+
+    // Real-time conversion to INR for dual-currency transparency
+    // 1 targetCurrency unit in INR = inrToUsdRate / rateMultiplier
+    const inrPerTarget = inrToUsdRate / (rateMultiplier || 1);
+    const minInrLakhs = ((displayMinTuition * inrPerTarget) / 100000).toFixed(1);
+    const maxInrLakhs = ((displayMaxTuition * inrPerTarget) / 100000).toFixed(1);
 
     if (targetCurrency === "INR") {
-      const minLakhs = (minBudget / 100000).toFixed(1);
-      const maxLakhs = (maxBudget / 100000).toFixed(1);
-      result.estimatedBudgetRange = `₹${minLakhs}L - ₹${maxLakhs}L / year (Based on profile indicators)`;
+      result.estimatedBudgetRange = `₹${minInrLakhs}L - ₹${maxInrLakhs}L / yr`;
     } else {
-      const minInrLakhs = (((minBudget / rateMultiplier) * inrToUsdRate) / 100000).toFixed(1);
-      const maxInrLakhs = (((maxBudget / rateMultiplier) * inrToUsdRate) / 100000).toFixed(1);
-      result.estimatedBudgetRange = `${targetSymbol}${minBudget.toLocaleString('en-US', {maximumFractionDigits: 0})} - ${targetSymbol}${maxBudget.toLocaleString('en-US', {maximumFractionDigits: 0})} / yr (≈ ₹${minInrLakhs}L - ₹${maxInrLakhs}L)`;
+      result.estimatedBudgetRange = `${targetSymbol}${displayMinTuition.toLocaleString('en-US', {maximumFractionDigits: 0})} - ${targetSymbol}${displayMaxTuition.toLocaleString('en-US', {maximumFractionDigits: 0})} / yr (≈ ₹${minInrLakhs}L - ₹${maxInrLakhs}L)`;
     }
 
     // Generate a guaranteed high-quality programmatic summary
@@ -1842,7 +1918,7 @@ class LocalHeuristicBrain {
     let finalSummary = "";
     
     try {
-        const convertedBudget = Math.round(extractedBudget * rateMultiplier);
+        const convertedBudget = Math.round(displayMaxTuition || (extractedBudget * rateMultiplier));
         const degreeDisplay = exactCourse !== 'General' ? exactCourse : primaryDomain.replace(/_/g, ' ');
         const countryDisplay = destinationCountry !== "Not Decided" ? destinationCountry : "Global";
         const isPureNumber = /^[0-9$,.\s]+$/.test(context);

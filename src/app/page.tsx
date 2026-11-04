@@ -56,6 +56,7 @@ import { jsPDF } from 'jspdf';
 import { BarChart as RechartsBarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { ReportPDFView } from "@/components/ReportPDFView";
 import { BRAND_LOGO_DARK, BRAND_LOGO_LIGHT } from "@/lib/brandLogos";
+import { ALL_TARGET_COUNTRIES } from "@/lib/currency";
 
 type CollegeMatch = {
   name: string;
@@ -2223,7 +2224,7 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Target Country</label>
                   <select value={destinationCountry} onChange={(e) => setDestinationCountry(e.target.value)} className="w-full px-4 py-3 bg-black/40 border border-white/5 rounded-xl text-sm text-slate-200 outline-none focus:border-[#FC7133]/50 focus:ring-1 focus:ring-[#FC7133]/30 appearance-none cursor-pointer transition-all">
-                    {["USA", "Canada", "United Kingdom", "Australia", "New Zealand", "Germany", "Spain", "France", "Ireland", "EU/Other", "UAE/Middle East", "Singapore/APJ", "Malaysia", "Other", "Italy", "Not Decided"].map(c => <option key={c} className="bg-[#1C1C1E]">{c}</option>)}
+                    {ALL_TARGET_COUNTRIES.map(c => <option key={c} value={c} className="bg-[#1C1C1E]">{c}</option>)}
                   </select>
                 </div>
                 <div className="space-y-1.5">
@@ -2340,17 +2341,43 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
 
               {compareMode && compareResults.length === 0 && (
                 <div className="w-full p-6 border border-[#FC7133]/30 rounded-2xl bg-[#FC7133]/5 mb-8 animate-in fade-in duration-300">
-                  <h4 className="text-sm font-bold text-[#FC7133] uppercase tracking-widest mb-4 flex items-center gap-2">
-                    <span>🌍</span> Select Countries to Compare (up to 15)
-                  </h4>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 mb-6">
-                    {["USA", "Canada", "United Kingdom", "Australia", "New Zealand", "Germany", "Spain", "France", "Ireland", "UAE/Middle East", "Singapore/APJ", "Malaysia", "Italy", "Japan"].map(c => {
+                  <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                    <h4 className="text-sm font-bold text-[#FC7133] uppercase tracking-widest flex items-center gap-2">
+                      <span>🌍</span> Select Countries to Compare (up to 15)
+                    </h4>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">Quick:</span>
+                      <button
+                        type="button"
+                        onClick={() => setCompareCountries(["United States of America", "United Kingdom", "Canada", "Australia", "New Zealand"])}
+                        className="px-2.5 py-1 bg-white/5 hover:bg-white/10 rounded-lg text-[10px] text-slate-300 transition-colors font-medium"
+                      >
+                        Top 5
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCompareCountries(["Germany", "Ireland", "France", "Netherlands", "Italy", "Spain"])}
+                        className="px-2.5 py-1 bg-white/5 hover:bg-white/10 rounded-lg text-[10px] text-slate-300 transition-colors font-medium"
+                      >
+                        Europe
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCompareCountries([])}
+                        className="px-2.5 py-1 bg-white/5 hover:bg-white/10 rounded-lg text-[10px] text-rose-400 transition-colors font-medium"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2 mb-6 max-h-64 overflow-y-auto custom-scrollbar p-1">
+                    {ALL_TARGET_COUNTRIES.filter(c => c !== "Not Decided").map(c => {
                       const checked = compareCountries.includes(c);
                       return (
-                        <label key={c} className={`flex items-center gap-2 p-2.5 rounded-xl border cursor-pointer transition-all select-none text-xs font-medium ${checked ? 'bg-[#FC7133]/20 border-[#FC7133]/50 text-[#FC7133]' : 'bg-black/30 border-white/5 text-slate-400 hover:border-[#FC7133]/30'}`}>
+                        <label key={c} className={`flex items-center gap-2 p-2 rounded-xl border cursor-pointer transition-all select-none text-xs font-medium ${checked ? 'bg-[#FC7133]/20 border-[#FC7133]/50 text-[#FC7133]' : 'bg-black/30 border-white/5 text-slate-400 hover:border-[#FC7133]/30'}`}>
                           <input
                             type="checkbox"
-                            className="accent-[#FC7133] w-3.5 h-3.5"
+                            className="accent-[#FC7133] w-3.5 h-3.5 shrink-0"
                             checked={checked}
                             onChange={() => {
                               if (checked) {
@@ -2360,7 +2387,7 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
                               }
                             }}
                           />
-                          {c}
+                          <span className="truncate">{c}</span>
                         </label>
                       );
                     })}
@@ -3887,11 +3914,15 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
                 <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1.5">Target Country</label>
                 <input 
                   type="text" 
+                  list="edit-target-countries-list"
                   value={editForm.destinationCountry} 
                   onChange={(e) => setEditForm(prev => ({ ...prev, destinationCountry: e.target.value }))}
-                  placeholder="e.g. USA" 
+                  placeholder="e.g. New Zealand" 
                   className="w-full px-4 py-2.5 bg-black/50 border border-white/10 rounded-xl text-sm text-slate-200 outline-none focus:border-[#FC7133]/60 focus:ring-1 focus:ring-[#FC7133]/30"
                 />
+                <datalist id="edit-target-countries-list">
+                  {ALL_TARGET_COUNTRIES.map(c => <option key={c} value={c} />)}
+                </datalist>
               </div>
 
               <div>
