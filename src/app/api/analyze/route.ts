@@ -334,7 +334,8 @@ class LocalHeuristicBrain {
     context,
     destination,
     budgetFormatted,
-    intake
+    intake,
+    customCounselorNotes
   }: {
     name: string;
     cgpa: number;
@@ -347,6 +348,7 @@ class LocalHeuristicBrain {
     destination: string;
     budgetFormatted: string;
     intake: string;
+    customCounselorNotes?: string;
   }): string {
     const fullInput = `${context || ''} ${rawText || ''}`.trim();
 
@@ -419,9 +421,16 @@ class LocalHeuristicBrain {
 
     // 6. Counselor Notes
     const profileStrength = cgpa >= 8.5 ? "exceptional" : cgpa >= 7.5 ? "strong" : cgpa >= 6.0 ? "competitive" : "foundational";
-    const counselorNotes = context && context.trim().length > 10
+    let counselorNotes = context && context.trim().length > 10
       ? context.trim()
       : `Profile evaluated against university entry criteria, test score benchmarks, and financial parameters. Candidate shows a ${profileStrength} academic foundation suitable for accredited global programs.`;
+
+    if (customCounselorNotes && customCounselorNotes.trim().length > 5) {
+      const cleanCustom = customCounselorNotes.trim();
+      counselorNotes = cleanCustom.startsWith('*') ? cleanCustom : `* ${cleanCustom}`;
+    } else {
+      counselorNotes = `* ${counselorNotes}`;
+    }
 
     return [
       `Here is the 3-part report for ${name}:`,
@@ -442,8 +451,69 @@ class LocalHeuristicBrain {
       ``,
       `**Counselor Notes**`,
       ``,
-      `* ${counselorNotes}`
+      `${counselorNotes}`
     ].join('\n');
+  }
+
+  ensureCompleteReport(
+    aiText: string,
+    reportParams: {
+      name: string;
+      cgpa: number;
+      originalGrade?: string;
+      domain: string;
+      degreeObjective: string;
+      targetCourse?: string;
+      rawText: string;
+      context: string;
+      destination: string;
+      budgetFormatted: string;
+      intake: string;
+    }
+  ): string {
+    const fullBaseline = this.buildDetailedStudentReport(reportParams);
+    if (!aiText || aiText.trim().length < 15) return fullBaseline;
+
+    const trimmed = aiText.trim();
+
+    // Case 1: Ollama generated pure strategic bullets without markdown headings
+    if (!trimmed.includes("**Academic Background**") && !trimmed.includes("**Financial")) {
+      return this.buildDetailedStudentReport({
+        ...reportParams,
+        customCounselorNotes: trimmed
+      });
+    }
+
+    // Case 2: Ollama attempted to output the full 3-part report.
+    const hasAcademic = trimmed.includes("**Academic Background**");
+    const hasFinancial = trimmed.includes("**Financial");
+    const hasCounselor = trimmed.includes("**Counselor Notes");
+
+    // Clean up trailing incomplete line (e.g. `* **Relevant Coursework` without content)
+    let cleanedAi = trimmed
+      .replace(/\*\s*\*\*[A-Za-z\s]+:\*\*\s*$/, '')
+      .replace(/\*\s*\*\*[A-Za-z\s]+\*\*\s*$/, '')
+      .replace(/\*\s*$/, '')
+      .trim();
+
+    // If it has all 3 sections and completed cleanly with a full closing:
+    if (hasAcademic && hasFinancial && hasCounselor && cleanedAi.length > 180) {
+      return cleanedAi;
+    }
+
+    // If it cut off mid-way (e.g. before Counselor Notes or in Academic section):
+    let counselorContent = "";
+    if (hasCounselor) {
+      const parts = cleanedAi.split(/\*\*Counselor Notes[^*]*\*\*/i);
+      if (parts[1] && parts[1].trim().length > 10) {
+        counselorContent = parts[1].trim();
+      }
+    }
+
+    return this.buildDetailedStudentReport({
+      ...reportParams,
+      customCounselorNotes: counselorContent || undefined
+    });
   }
 
   queryMatchingPrograms(
@@ -2118,16 +2188,16 @@ Student: ${extractedName}${contactInfo ? ` | Contact: ${contactInfo}` : ''} | Go
             // Allow up to 24s so Ollama finishes inference cleanly without premature aborts
             // Local on-premise servers (Windows / Mac / Linux) allow 120 seconds.
             const timeoutMs = isCloudEnv ? 24000 : 120000;
-            // 42 tokens generates the crisp 3-part structured summary in ~8-10s on CPU
-            const tokenLimit = isCloudEnv ? 42 : 100;
+            // 60 tokens generates crisp counselor insights in ~6-8s on CPU without hitting serverless timeout limits
+            const tokenLimit = isCloudEnv ? 60 : 120;
             const overallDeadline = Date.now() + (isCloudEnv ? 24000 : 120000);
 
             let ollamaResponse: Response | null = null;
             let lastAiError: any = null;
             let finalModelUsed = aiModel;
 
-            const chatSystemPrompt = "You are an expert university admission counselor AI. Format a crisp 3-part report with headings: **Academic Background**, **Financial & Location Preferences**, **Counselor Notes**.";
-            const chatUserPrompt = `Student: ${extractedName} | Goal: ${degreeObjective} in ${degreeDisplay} | CGPA: ${extractedCgpa}/10 | Budget: ${targetSymbol}${convertedBudget.toLocaleString('en-US', {maximumFractionDigits: 0})} | Destination: ${countryDisplay} | Intake: ${manualIntake} | Notes: ${cleanNotes}`;
+            const chatSystemPrompt = "You are an expert admission counselor AI. In 2 concise bullet points, provide high-impact strategic counselor advice evaluating student competitiveness, strengths, and admission roadmap.";
+            const chatUserPrompt = `Candidate: ${extractedName} | Academic CGPA: ${extractedCgpa}/10 in ${primaryDomain.replace(/_/g, ' ')} | Degree Target: ${degreeObjective} in ${degreeDisplay} | Destination: ${countryDisplay} | Budget: ${result.estimatedBudgetRange}`;
 
             for (const targetUrl of candidateEndpoints) {
                 const remainingTime = overallDeadline - Date.now();
@@ -2305,7 +2375,19 @@ Student: ${extractedName}${contactInfo ? ` | Contact: ${contactInfo}` : ''} | Go
                 const aiText = (data.response || data.message?.content || data.choices?.[0]?.message?.content || '').trim();
                 
                 if (aiText) {
-                    finalSummary = aiText;
+                    finalSummary = this.ensureCompleteReport(aiText, {
+                        name: extractedName,
+                        cgpa: extractedCgpa,
+                        originalGrade: extractedOriginalGrade,
+                        domain: primaryDomain,
+                        degreeObjective: degreeObjective,
+                        targetCourse: exactCourse !== 'General' ? exactCourse : explicitTargetCourse,
+                        rawText: text,
+                        context: context,
+                        destination: destinationCountry,
+                        budgetFormatted: result.estimatedBudgetRange,
+                        intake: manualIntake
+                    });
                     result.isAiGenerated = true;
                     (result as any).aiModelUsed = finalModelUsed;
                 } else {
@@ -2328,7 +2410,7 @@ Student: ${extractedName}${contactInfo ? ` | Contact: ${contactInfo}` : ''} | Go
             rawText: text,
             context: context,
             destination: destinationCountry,
-            budgetFormatted: `${targetSymbol}${extractedBudget.toLocaleString('en-US', {maximumFractionDigits: 0})} / year`,
+            budgetFormatted: result.estimatedBudgetRange,
             intake: manualIntake
         });
         result.isAiGenerated = false;
