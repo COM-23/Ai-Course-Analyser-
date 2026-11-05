@@ -193,7 +193,7 @@ export async function PATCH(req: Request) {
     }
 
     const db = getDb();
-    const isSuperAdmin = user?.role === 'super_admin' || !user;
+    const isSuperAdmin = user?.role === 'super_admin' || (!user && !isCloudEnv);
 
     if (studentDetails && typeof studentSummary === 'string') {
       const detailsStr = typeof studentDetails === 'string' ? studentDetails : JSON.stringify(studentDetails);
@@ -203,15 +203,10 @@ export async function PATCH(req: Request) {
       } else if (user?.id) {
         res = db.prepare('UPDATE students SET studentDetails = ?, studentSummary = ? WHERE id = ? AND counselor_id = ?').run(detailsStr, studentSummary, id, Number(user.id));
         if (res && res.changes === 0) {
-          res = db.prepare('UPDATE students SET studentDetails = ?, studentSummary = ? WHERE id = ?').run(detailsStr, studentSummary, id);
+          return NextResponse.json({ error: 'Student record not found or access denied.' }, { status: 403 });
         }
       } else {
         res = db.prepare('UPDATE students SET studentDetails = ?, studentSummary = ? WHERE id = ?').run(detailsStr, studentSummary, id);
-      }
-      if (res && res.changes === 0) {
-        try {
-          db.prepare('INSERT INTO students (id, studentDetails, studentSummary, counselor_id) VALUES (?, ?, ?, ?)').run(id, detailsStr, studentSummary, Number(user?.id || 1));
-        } catch (e) {}
       }
       return NextResponse.json({ success: true });
     }
@@ -224,15 +219,10 @@ export async function PATCH(req: Request) {
       } else if (user?.id) {
         res = db.prepare('UPDATE students SET studentDetails = ? WHERE id = ? AND counselor_id = ?').run(detailsStr, id, Number(user.id));
         if (res && res.changes === 0) {
-          res = db.prepare('UPDATE students SET studentDetails = ? WHERE id = ?').run(detailsStr, id);
+          return NextResponse.json({ error: 'Student record not found or access denied.' }, { status: 403 });
         }
       } else {
         res = db.prepare('UPDATE students SET studentDetails = ? WHERE id = ?').run(detailsStr, id);
-      }
-      if (res && res.changes === 0) {
-        try {
-          db.prepare('INSERT INTO students (id, studentDetails, counselor_id) VALUES (?, ?, ?)').run(id, detailsStr, Number(user?.id || 1));
-        } catch (e) {}
       }
       return NextResponse.json({ success: true });
     }
@@ -245,7 +235,7 @@ export async function PATCH(req: Request) {
         const stmt = db.prepare('UPDATE students SET studentSummary = ? WHERE id = ? AND counselor_id = ?');
         const result = stmt.run(studentSummary, id, Number(user.id));
         if (result && result.changes === 0) {
-          db.prepare('UPDATE students SET studentSummary = ? WHERE id = ?').run(studentSummary, id);
+          return NextResponse.json({ error: 'Student record not found or access denied.' }, { status: 403 });
         }
       } else {
         const stmt = db.prepare('UPDATE students SET studentSummary = ? WHERE id = ?');
@@ -313,21 +303,27 @@ export async function POST(req: Request) {
         let studentRecordId: number | null = null;
         if (s.id && Number(s.id) < 1000000000) {
           try {
-            const exists = db.prepare('SELECT id FROM students WHERE id = ?').get(Number(s.id)) as any;
+            const exists = isSuperAdmin
+              ? db.prepare('SELECT id FROM students WHERE id = ?').get(Number(s.id)) as any
+              : db.prepare('SELECT id FROM students WHERE id = ? AND counselor_id = ?').get(Number(s.id), targetCounselorId) as any;
             if (exists?.id) studentRecordId = Number(exists.id);
           } catch (e) {}
         }
 
-        // If not matched by valid primary key, look up by email or name
+        // If not matched by valid primary key, look up by email or name scoped to counselor
         if (!studentRecordId) {
           try {
             const sDet = typeof s.studentDetails === 'string' ? JSON.parse(s.studentDetails) : s.studentDetails;
             if (sDet?.email && sDet.email !== 'Not Provided') {
-              const existing = db.prepare("SELECT id FROM students WHERE json_extract(studentDetails, '$.email') = ? COLLATE NOCASE").get(sDet.email) as any;
+              const existing = isSuperAdmin
+                ? db.prepare("SELECT id FROM students WHERE json_extract(studentDetails, '$.email') = ? COLLATE NOCASE").get(sDet.email) as any
+                : db.prepare("SELECT id FROM students WHERE json_extract(studentDetails, '$.email') = ? COLLATE NOCASE AND counselor_id = ?").get(sDet.email, targetCounselorId) as any;
               if (existing?.id) studentRecordId = Number(existing.id);
             }
             if (!studentRecordId && sDet?.name && sDet.name !== 'Unknown Student') {
-              const existing = db.prepare("SELECT id FROM students WHERE json_extract(studentDetails, '$.name') = ? COLLATE NOCASE").get(sDet.name) as any;
+              const existing = isSuperAdmin
+                ? db.prepare("SELECT id FROM students WHERE json_extract(studentDetails, '$.name') = ? COLLATE NOCASE").get(sDet.name) as any
+                : db.prepare("SELECT id FROM students WHERE json_extract(studentDetails, '$.name') = ? COLLATE NOCASE AND counselor_id = ?").get(sDet.name, targetCounselorId) as any;
               if (existing?.id) studentRecordId = Number(existing.id);
             }
           } catch (lookupErr) {}

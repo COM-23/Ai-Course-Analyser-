@@ -2682,7 +2682,7 @@ export async function POST(req: NextRequest) {
           try {
             existingStudent = getDb().prepare(`SELECT id, studentDetails FROM students WHERE json_extract(studentDetails, '$.email') = ? COLLATE NOCASE AND counselor_id = ?`).get(analysis.studentDetails.email, counselorId) as any;
           } catch (e) {}
-          if (!existingStudent) {
+          if (!existingStudent && authUser?.role === 'super_admin') {
             try {
               existingStudent = getDb().prepare(`SELECT id, studentDetails FROM students WHERE json_extract(studentDetails, '$.email') = ? COLLATE NOCASE`).get(analysis.studentDetails.email) as any;
             } catch (e) {}
@@ -2692,7 +2692,7 @@ export async function POST(req: NextRequest) {
           try {
             existingStudent = getDb().prepare(`SELECT id, studentDetails FROM students WHERE json_extract(studentDetails, '$.name') = ? COLLATE NOCASE AND counselor_id = ?`).get(analysis.studentDetails.name, counselorId) as any;
           } catch (e) {}
-          if (!existingStudent) {
+          if (!existingStudent && authUser?.role === 'super_admin') {
             try {
               existingStudent = getDb().prepare(`SELECT id, studentDetails FROM students WHERE json_extract(studentDetails, '$.name') = ? COLLATE NOCASE`).get(analysis.studentDetails.name) as any;
             } catch (e) {}
@@ -2816,6 +2816,7 @@ export async function POST(req: NextRequest) {
     }
 
     (analysis as any).compareCountry = destinationCountry;
+    (analysis as any).counselor_id = counselorId;
     return NextResponse.json(analysis);
 
   } catch (error: any) {

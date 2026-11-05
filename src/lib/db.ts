@@ -758,8 +758,16 @@ function createPureJsDatabase(storagePath: string): DatabaseAdapter {
             const details = params[0];
             const summary = params[1];
             const targetId = Number(params[2]);
-            let target = memoryData.students.find((s: any) => Number(s.id) === targetId);
-            if (!target && memoryData.students.length > 0) {
+            const hasCid = upper.includes('COUNSELOR_ID = ?') || upper.includes('COUNSELOR_ID=?');
+            const counselorId = hasCid && params.length > 3 ? Number(params[3]) : null;
+
+            let target = memoryData.students.find((s: any) => {
+              if (Number(s.id) !== targetId) return false;
+              if (counselorId !== null && Number(s.counselor_id) !== counselorId) return false;
+              return true;
+            });
+
+            if (!target && memoryData.students.length > 0 && counselorId === null) {
               target = memoryData.students.find((s: any) => {
                 try {
                   const d = typeof s.studentDetails === 'string' ? JSON.parse(s.studentDetails) : s.studentDetails;
@@ -780,8 +788,16 @@ function createPureJsDatabase(storagePath: string): DatabaseAdapter {
           if (upper.includes('UPDATE STUDENTS SET') && upper.includes('STUDENTDETAILS')) {
             const details = params[0];
             const targetId = Number(params[1]);
-            let target = memoryData.students.find((s: any) => Number(s.id) === targetId);
-            if (!target && memoryData.students.length > 0) {
+            const hasCid = upper.includes('COUNSELOR_ID = ?') || upper.includes('COUNSELOR_ID=?');
+            const counselorId = hasCid && params.length > 2 ? Number(params[2]) : null;
+
+            let target = memoryData.students.find((s: any) => {
+              if (Number(s.id) !== targetId) return false;
+              if (counselorId !== null && Number(s.counselor_id) !== counselorId) return false;
+              return true;
+            });
+
+            if (!target && memoryData.students.length > 0 && counselorId === null) {
               target = memoryData.students.find((s: any) => {
                 try {
                   const d = typeof s.studentDetails === 'string' ? JSON.parse(s.studentDetails) : s.studentDetails;
@@ -801,7 +817,15 @@ function createPureJsDatabase(storagePath: string): DatabaseAdapter {
           if (upper.includes('UPDATE STUDENTS SET') && upper.includes('STUDENTSUMMARY')) {
             const summary = params[0];
             const targetId = Number(params[1]);
-            const target = memoryData.students.find((s: any) => Number(s.id) === targetId);
+            const hasCid = upper.includes('COUNSELOR_ID = ?') || upper.includes('COUNSELOR_ID=?');
+            const counselorId = hasCid && params.length > 2 ? Number(params[2]) : null;
+
+            let target = memoryData.students.find((s: any) => {
+              if (Number(s.id) !== targetId) return false;
+              if (counselorId !== null && Number(s.counselor_id) !== counselorId) return false;
+              return true;
+            });
+
             if (target) {
               target.studentSummary = summary;
               persist();

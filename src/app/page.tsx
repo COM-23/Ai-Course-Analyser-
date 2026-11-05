@@ -1382,6 +1382,7 @@ export default function Home() {
       let res = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify(payload),
       });
 
@@ -1391,6 +1392,7 @@ export default function Home() {
         res = await fetch("/api/analyze", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          credentials: "include",
           body: JSON.stringify(payload),
         });
       }
@@ -1454,6 +1456,12 @@ export default function Home() {
       }
       if (finalData?.studentDetails?.phone && finalData.studentDetails.phone !== "Not Provided") {
         setStudentPhone(finalData.studentDetails.phone);
+      }
+      if (finalData) {
+        (finalData as any).counselor_id = currentUser?.id ? Number(currentUser.id) : ((finalData as any).counselor_id || 1);
+        if (currentUser?.name && !(finalData as any).counselorName) {
+          (finalData as any).counselorName = currentUser.name;
+        }
       }
       setHistory(prev => {
         const existingIdx = prev.findIndex((s: any) => 
@@ -1549,6 +1557,7 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
         let res = await fetch("/api/analyze", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          credentials: "include",
           body: JSON.stringify(payload),
         });
         if (!res.ok && (res.status === 502 || res.status === 504)) {
@@ -1557,6 +1566,7 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
           res = await fetch("/api/analyze", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
+            credentials: "include",
             body: JSON.stringify(payload),
           });
         }
