@@ -90,7 +90,7 @@ export async function GET(req: Request) {
   // 5. Default fallback to active live Cloudflare tunnel or local LAN
   if (!configuredEndpoint) {
     configuredEndpoint = isCloudEnv
-      ? 'https://garmin-emotions-insured-dual.trycloudflare.com/api/generate'
+      ? 'https://publicly-suggest-percent-relevant.trycloudflare.com/api/generate'
       : 'http://192.168.0.80:11434/api/generate';
   }
 
@@ -100,10 +100,11 @@ export async function GET(req: Request) {
     configuredEndpoint.includes('discussion-mile-campaign-statistics') ||
     configuredEndpoint.includes('entrepreneurs-psp-navigate-maternity') ||
     configuredEndpoint.includes('your-tunnel-subdomain') ||
-    configuredEndpoint.includes('millions-librarian-consumer-desktops')
+    configuredEndpoint.includes('millions-librarian-consumer-desktops') ||
+    configuredEndpoint.includes('garmin-emotions-insured-dual')
   )) {
     configuredEndpoint = isCloudEnv
-      ? 'https://garmin-emotions-insured-dual.trycloudflare.com/api/generate'
+      ? 'https://publicly-suggest-percent-relevant.trycloudflare.com/api/generate'
       : 'http://192.168.0.80:11434/api/generate';
   }
 
@@ -174,7 +175,7 @@ export async function GET(req: Request) {
   const candidateEndpoints = (isCloudEnv
     ? [
         ...configuredVariants,
-        'https://garmin-emotions-insured-dual.trycloudflare.com/api/generate'
+        'https://publicly-suggest-percent-relevant.trycloudflare.com/api/generate'
       ].filter(Boolean)
     : [
         'http://127.0.0.1:11434/api/generate',

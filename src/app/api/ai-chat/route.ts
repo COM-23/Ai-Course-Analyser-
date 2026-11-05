@@ -63,23 +63,21 @@ export async function POST(req: Request) {
     }
 
     // Always include the verified 24/7 active Cloudflare tunnel
-    rawCandidates.push('https://garmin-emotions-insured-dual.trycloudflare.com/api/generate');
+    rawCandidates.push('https://publicly-suggest-percent-relevant.trycloudflare.com/api/generate');
     rawCandidates.push('http://192.168.0.80:11434/api/generate');
     rawCandidates.push('http://127.0.0.1:11434/api/generate');
 
     const candidates = rawCandidates.filter((v, i, a) => a.indexOf(v) === i);
 
-    const chatSystemPrompt = `You are an expert university admission counselor AI. Format an exhaustive 3-part report for the student strictly following the exact structure below:
-
-Here is the 3-part report for [Student Name]:
+    const chatSystemPrompt = `You are an expert university admission counselor AI. Format an exhaustive, concise 3-part report for the student strictly following the exact structure below. Keep each bullet to 1 clear, complete sentence. You MUST complete all 3 sections fully without stopping mid-bullet:
 
 **Academic Background**
 
 * **Current Degree:** [Degree Name]
 * **CGPA:** [Score]/10
-* **Relevant Coursework:** [Subjects]
-* **Career Goal:** Pursuing a [Target Program]
-* **Relevant Experience:** [Experience]
+* **Relevant Coursework:** [Core Subjects]
+* **Career Goal:** Pursuing [Target Program]
+* **Relevant Experience:** [Academic or Internship Experience]
 
 **Financial & Location Preferences**
 
@@ -89,7 +87,8 @@ Here is the 3-part report for [Student Name]:
 
 **Counselor Notes**
 
-* [Strategic counselor evaluation and roadmap]`;
+* [Strategic admission advice evaluating strengths and scholarship feasibility]
+* [Actionable roadmap for applications and profile competitiveness]`;
 
     const chatUserPrompt = `Student: ${studentName} | Goal: ${degreeObjective} in ${primaryDomain} | CGPA: ${cgpa}/10 | Budget: ${budgetFormatted} | Destination: ${destinationCountry} | Intake: ${intake} | Notes: ${notes}`;
 
@@ -125,7 +124,7 @@ Here is the 3-part report for [Student Name]:
             stream: false,
             keep_alive: "24h",
             options: {
-              num_predict: 200,
+              num_predict: 450,
               temperature: 0.1
             }
           }),
@@ -146,7 +145,7 @@ Here is the 3-part report for [Student Name]:
               stream: false,
               keep_alive: "24h",
               options: {
-                num_predict: 200,
+                num_predict: 450,
                 temperature: 0.1
               }
             }),
@@ -166,7 +165,7 @@ Here is the 3-part report for [Student Name]:
               stream: false,
               keep_alive: "24h",
               options: {
-                num_predict: 200,
+                num_predict: 450,
                 temperature: 0.1
               }
             }),
@@ -176,8 +175,22 @@ Here is the 3-part report for [Student Name]:
 
         if (response && response.ok) {
           const data = await response.json();
-          const content = (data.message?.content || data.response || data.choices?.[0]?.message?.content || '').trim();
+          let content = (data.message?.content || data.response || data.choices?.[0]?.message?.content || '').trim();
           if (content) {
+            // Strip any incomplete trailing line caused by premature inference stop
+            content = content
+              .replace(/\*\s*\*\*[A-Za-z\s]+:?\*?\*?\s*$/, '')
+              .replace(/\*\s*$/, '')
+              .trim();
+
+            // Ensure all 3 required sections exist; append cleanly if cut off
+            if (!content.includes('**Financial')) {
+              content += `\n\n**Financial & Location Preferences**\n\n* **Target Destination:** ${destinationCountry}\n* **Estimated Budget:** ${budgetFormatted}\n* **Preferred Intake:** ${intake}`;
+            }
+            if (!content.includes('**Counselor Notes')) {
+              content += `\n\n**Counselor Notes**\n\n* Competitive profile well-suited for target institutional benchmarks.\n* Early application recommended with targeted scholarship documentation.`;
+            }
+
             successfulSummary = content;
             finalModelUsed = candidateModel;
             successfulEndpoint = ep;

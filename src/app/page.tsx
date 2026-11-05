@@ -717,9 +717,9 @@ export default function Home() {
 
       const defaultEp = isLocalHost
         ? "http://192.168.0.80:11434/api/generate"
-        : "https://garmin-emotions-insured-dual.trycloudflare.com/api/generate";
+        : "https://publicly-suggest-percent-relevant.trycloudflare.com/api/generate";
 
-      if (savedEndpoint) {
+      if (savedEndpoint && !savedEndpoint.includes('garmin-emotions-insured-dual')) {
         setCustomAiEndpoint(cleanAndNormalizeAiUrl(savedEndpoint));
       } else {
         setCustomAiEndpoint(defaultEp);
@@ -868,7 +868,7 @@ export default function Home() {
       );
       ep = isLocal
         ? 'http://192.168.0.80:11434/api/generate'
-        : 'https://garmin-emotions-insured-dual.trycloudflare.com/api/generate';
+        : 'https://publicly-suggest-percent-relevant.trycloudflare.com/api/generate';
     }
 
     setIsGeneratingAiDirectly(true);
@@ -1102,9 +1102,10 @@ export default function Home() {
           );
           const defaultEp = isLocal
             ? "http://192.168.0.80:11434/api/generate"
-            : "https://garmin-emotions-insured-dual.trycloudflare.com/api/generate";
+            : "https://publicly-suggest-percent-relevant.trycloudflare.com/api/generate";
           const epToUse = (
             data.aiEndpoint &&
+            !data.aiEndpoint.includes('garmin-emotions-insured-dual') &&
             !data.aiEndpoint.includes('orientation-humanities-inc-leg') &&
             !data.aiEndpoint.includes('discussion-mile-campaign-statistics') &&
             !data.aiEndpoint.includes('entrepreneurs-psp-navigate-maternity') &&

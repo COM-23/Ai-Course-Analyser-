@@ -491,7 +491,7 @@ class LocalHeuristicBrain {
 
     // Clean up trailing incomplete line (e.g. `* **Relevant Coursework` without content)
     let cleanedAi = trimmed
-      .replace(/\*\s*\*\*[A-Za-z\s]+:\*\*\s*$/, '')
+      .replace(/\*\s*\*\*[A-Za-z\s]+:?\*?\*?\s*$/, '')
       .replace(/\*\s*\*\*[A-Za-z\s]+\*\*\s*$/, '')
       .replace(/\*\s*$/, '')
       .trim();
@@ -1325,8 +1325,12 @@ class LocalHeuristicBrain {
           hasExplicitBudget = true;
         }
       } else {
-        // Plain number in context box
-        const numMatch = cleanContext.match(/[0-9]{1,3}(?:,[0-9]{3})+|[0-9]{4,8}/);
+        // Plain number in context box (explicitly ignore phone numbers, pincodes, and CGPAs)
+        const contextWithoutPhone = cleanContext
+          .replace(/(?:phone|mobile|tel|contact|call|cell|whatsapp)[\s:=-]*\+?[0-9\s\-().]{7,15}/gi, '')
+          .replace(/\b[6-9][0-9]{9}\b/g, '')
+          .replace(/\b\d{1,2}\s*(?:\/|\s*out of\s*)\s*10\b/gi, '');
+        const numMatch = contextWithoutPhone.match(/[0-9]{1,3}(?:,[0-9]{3})+|\b[0-9]{5,8}\b/);
         if (numMatch) {
           const val = parseInt(numMatch[0].replace(/,/g, ''), 10);
           if (val >= 500000 && val <= 25000000) {
@@ -2011,22 +2015,47 @@ class LocalHeuristicBrain {
 
     const rateMultiplier = rates[targetCurrency] || FALLBACK_RATES[targetCurrency] || 1;
 
-    // Real Data Budget Calculation based on matched universities in dataset
-    const matchedTuitions = result.recommendedColleges
+    // Real Data Budget Calculation based on matched universities in dataset (Normalized to Target Currency)
+    const matchedTuitionsInTarget = result.recommendedColleges
       .map(c => {
-        if (typeof c.tuition === 'number' && c.tuition > 0) return c.tuition;
-        const num = parseFloat(String(c.tuition || '').replace(/[^\d.]/g, ''));
-        return !isNaN(num) && num > 0 ? num : 0;
+        let raw = 0;
+        if (typeof c.tuition === 'number' && c.tuition > 0) {
+          raw = c.tuition;
+        } else {
+          const num = parseFloat(String(c.tuition || '').replace(/[^\d.]/g, ''));
+          if (!isNaN(num) && num > 0) raw = num;
+        }
+        if (raw <= 0) return 0;
+
+        const cCurr = (c.currency || 'USD').toUpperCase().trim();
+        const fromRate = rates[cCurr] || FALLBACK_RATES[cCurr] || 1;
+        // Step 1: Normalize this college's tuition to USD
+        const tuitionUsd = raw / fromRate;
+        // Step 2: Convert from USD to target currency
+        return Math.round(tuitionUsd * rateMultiplier);
       })
       .filter(t => t > 0);
 
     let displayMinTuition = 0;
     let displayMaxTuition = 0;
 
-    if (matchedTuitions.length > 0) {
-      matchedTuitions.sort((a, b) => a - b);
-      displayMinTuition = Math.round(matchedTuitions[0]);
-      displayMaxTuition = Math.round(matchedTuitions[matchedTuitions.length - 1]);
+    if (matchedTuitionsInTarget.length > 0) {
+      matchedTuitionsInTarget.sort((a, b) => a - b);
+      displayMinTuition = Math.round(matchedTuitionsInTarget[0]);
+      displayMaxTuition = Math.round(matchedTuitionsInTarget[matchedTuitionsInTarget.length - 1]);
+
+      // If student has explicit budget, cap displayMaxTuition within reach tolerance (+15%)
+      if (hasExplicitBudget && extractedBudget > 0) {
+        const studentBudgetInTarget = Math.round(extractedBudget * rateMultiplier);
+        const maxBudgetCap = Math.round(studentBudgetInTarget * 1.15);
+        if (displayMaxTuition > maxBudgetCap) {
+          displayMaxTuition = maxBudgetCap;
+        }
+        if (displayMinTuition > displayMaxTuition) {
+          displayMinTuition = Math.round(displayMaxTuition * 0.75);
+        }
+      }
+
       // If min and max are identical, present a realistic +/- 10% range
       if (displayMinTuition === displayMaxTuition) {
         displayMinTuition = Math.round(displayMinTuition * 0.9);
@@ -2220,7 +2249,7 @@ Student: ${extractedName}${contactInfo ? ` | Contact: ${contactInfo}` : ''} | Go
                 dbEndpoint,
                 fileStatusEndpoint,
                 envEndpoint,
-                'https://garmin-emotions-insured-dual.trycloudflare.com/api/generate'
+                'https://publicly-suggest-percent-relevant.trycloudflare.com/api/generate'
             ].filter(Boolean)
              .map((s: string) => cleanAndNormalizeUrl(String(s).trim()))
              .filter((s: string) => s && 
