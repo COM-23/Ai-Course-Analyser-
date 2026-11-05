@@ -2719,7 +2719,7 @@ export async function POST(req: NextRequest) {
              UPDATE students SET 
                studentDetails = ?, studentSummary = ?, strengths = ?, areasForImprovement = ?,
                careerOpportunities = ?, recommendedColleges = ?, visaDifficulty = ?,
-               keySkillsIdentified = ?, estimatedBudgetRange = ?, createdAt = CURRENT_TIMESTAMP
+               keySkillsIdentified = ?, estimatedBudgetRange = ?, counselor_id = COALESCE(?, counselor_id), createdAt = CURRENT_TIMESTAMP
              WHERE id = ?
            `);
            stmt.run(
@@ -2732,6 +2732,7 @@ export async function POST(req: NextRequest) {
               analysis.visaDifficulty,
               JSON.stringify(analysis.keySkillsIdentified),
               analysis.estimatedBudgetRange,
+              counselorId,
               existingStudent.id
            );
            (analysis as any).id = Number(existingStudent.id);

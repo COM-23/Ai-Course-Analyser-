@@ -1,5 +1,5 @@
 "use client";
-import { useState, useRef, useEffect, Fragment } from "react";
+import { useState, useRef, useEffect, useMemo, Fragment } from "react";
 import AdminDatabase from "./admin/database/page";
 import { 
   Upload, 
@@ -1284,21 +1284,27 @@ export default function Home() {
     "performing_arts_media", "agricultural_sciences", "agriculture_veterinary"
   ];
   
-  const historyDomains = history.map(h => h.studentDetails?.primaryDomain || "General");
+  const scopedHistory = useMemo(() => {
+    if (!currentUser) return [];
+    if (currentUser.role === 'super_admin') return history;
+    return history.filter(s => Number(s.counselor_id) === Number(currentUser.id));
+  }, [history, currentUser]);
+
+  const historyDomains = scopedHistory.map(h => h.studentDetails?.primaryDomain || "General");
   const uniqueDomains = Array.from(new Set([...standardDomains, ...historyDomains]));
 
-  const historyExactCourses = history.map(h => (h.studentDetails as any)?.exactCourse).filter(Boolean);
+  const historyExactCourses = scopedHistory.map(h => (h.studentDetails as any)?.exactCourse).filter(Boolean);
   const uniqueExactCourses = Array.from(new Set(historyExactCourses));
 
-  // Calculate global stats
-  const totalStudents = history.length;
-  const countries = history.map(h => h.studentDetails?.destinationCountry || "Global");
+  // Calculate stats scoped to user
+  const totalStudents = scopedHistory.length;
+  const countries = scopedHistory.map(h => h.studentDetails?.destinationCountry || "Global");
   const countryCounts = countries.reduce((acc, c) => { acc[c] = (acc[c] || 0) + 1; return acc; }, {} as Record<string, number>);
   const topCountry = Object.keys(countryCounts).sort((a, b) => countryCounts[b] - countryCounts[a])[0] || "-";
 
   let totalMatches = 0;
   let matchSum = 0;
-  history.forEach(h => {
+  scopedHistory.forEach(h => {
     h.recommendedColleges?.forEach((c: any) => {
       matchSum += c.matchPercentage;
       totalMatches++;
@@ -1841,7 +1847,7 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
     }
   };
 
-  const filteredHistory = history.filter(student => {
+  const filteredHistory = scopedHistory.filter(student => {
     const name = student.studentDetails?.name?.toLowerCase() || "";
     const domain = student.studentDetails?.primaryDomain?.toLowerCase() || "";
     const country = student.studentDetails?.destinationCountry?.toLowerCase() || "";
@@ -1873,8 +1879,12 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
     }
     
     let matchesCounselor = true;
-    if (currentUser?.role === 'super_admin' && filterCounselor !== "All") {
-       matchesCounselor = String(student.counselor_id) === filterCounselor || student.counselorName?.toLowerCase() === filterCounselor.toLowerCase();
+    if (currentUser?.role === 'super_admin') {
+      if (filterCounselor !== "All") {
+        matchesCounselor = String(student.counselor_id) === filterCounselor || student.counselorName?.toLowerCase() === filterCounselor.toLowerCase();
+      }
+    } else if (currentUser?.id) {
+      matchesCounselor = Number(student.counselor_id) === Number(currentUser.id);
     }
 
     return matchesSearch && matchesFilter && matchesExactCourse && matchesDate && matchesTerm && matchesYear && matchesCounselor;
@@ -3066,7 +3076,7 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
               <div className="lg:col-span-2 bg-[#111113]/80 backdrop-blur-xl border border-white/5 rounded-3xl p-6 shadow-xl flex flex-col">
                 <h3 className="text-sm font-bold text-slate-300 uppercase tracking-widest mb-6">Application Trends</h3>
                 <div className="flex-1 rounded-2xl flex items-center justify-center relative overflow-hidden group">
-                  {history.length > 0 ? (
+                  {scopedHistory.length > 0 ? (
                     <ResponsiveContainer width="100%" height="100%">
                       <RechartsBarChart data={
                         Object.entries(countryCounts)
@@ -3095,9 +3105,9 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
               <div className="bg-[#111113]/80 backdrop-blur-xl border border-white/5 rounded-3xl p-6 shadow-xl flex flex-col">
                 <h3 className="text-sm font-bold text-slate-300 uppercase tracking-widest mb-6">Recent Activity</h3>
                 <div className="flex flex-col gap-4">
-                  {history.length === 0 ? (
+                  {scopedHistory.length === 0 ? (
                     <p className="text-sm text-slate-500">No activity yet. Analyze a student to see history.</p>
-                  ) : history.slice(0, 4).map((student, i) => (
+                  ) : scopedHistory.slice(0, 4).map((student, i) => (
                     <div key={i} className="flex gap-4 items-center cursor-pointer group" onClick={() => handleViewStudent(student)}>
                       <div className="w-2 h-2 rounded-full bg-[#FC7133] shadow-[0_0_8px_rgba(252,113,51,0.8)] group-hover:scale-150 transition-transform" />
                       <div>
