@@ -667,7 +667,10 @@ export default function Home() {
     str = str.replace(/\/+$/, '');
     try {
       const u = new URL(str);
-      if (!u.port && (u.hostname.startsWith('192.168.') || u.hostname.startsWith('10.') || u.hostname === '127.0.0.1' || u.hostname === 'localhost')) {
+      if (
+        (!u.port || u.port === '114' || u.port === '1143' || (parseInt(u.port, 10) < 1000 && u.port !== '80' && u.port !== '443')) &&
+        (u.hostname.startsWith('192.168.') || u.hostname.startsWith('10.') || u.hostname === '127.0.0.1' || u.hostname === 'localhost')
+      ) {
         u.port = '11434';
         str = u.toString().replace(/\/+$/, '');
       }
@@ -751,7 +754,7 @@ export default function Home() {
       try {
         const res = await fetch(url, {
           headers: targetEp ? { 'x-ai-endpoint': targetEp } : {},
-          signal: AbortSignal.timeout(6000)
+          signal: AbortSignal.timeout(10000)
         });
         if (res.ok) {
           serverData = await res.json();

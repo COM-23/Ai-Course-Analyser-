@@ -178,13 +178,13 @@ export async function GET(req: Request) {
         'https://publicly-suggest-percent-relevant.trycloudflare.com/api/generate'
       ].filter(Boolean)
     : [
+        ...configuredVariants,
         'http://192.168.0.56:11434/api/generate',
         'http://127.0.0.1:11434/api/generate',
         'http://192.168.0.80:11434/api/generate',
         'http://192.168.0.56:11435/api/generate',
         'http://127.0.0.1:11435/api/generate',
-        'http://192.168.0.80:11435/api/generate',
-        ...configuredVariants
+        'http://192.168.0.80:11435/api/generate'
       ].filter(Boolean)
   ).filter(ep => 
     !ep.includes('entrepreneurs-psp-navigate-maternity') && 
@@ -220,7 +220,7 @@ export async function GET(req: Request) {
 
       let isUp = false;
       let modelList: string[] = [];
-      const probeTimeout = 4000;
+      const probeTimeout = 2000;
 
       // Probe 1: Direct Ollama /api/tags (with auth headers)
       try {
