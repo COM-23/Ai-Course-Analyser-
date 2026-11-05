@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from 'next/server';
 import { getDb } from "@/lib/db";
+import { isCloudDbEnabled, cloudResetUserPassword } from "@/lib/cloud-db";
 import bcrypt from 'bcryptjs';
 
 export async function POST(req: Request) {
@@ -27,6 +28,13 @@ export async function POST(req: Request) {
 
     const passwordHash = await bcrypt.hash(newPassword, 10);
     
+    if (isCloudDbEnabled()) {
+      try {
+        await cloudResetUserPassword(Number(id), passwordHash);
+        return NextResponse.json({ success: true });
+      } catch (e) {}
+    }
+
     const stmt = getDb().prepare('UPDATE users SET passwordHash = ? WHERE id = ?');
     stmt.run(passwordHash, id);
 

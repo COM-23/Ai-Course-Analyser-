@@ -1,5 +1,12 @@
 import { NextResponse } from 'next/server';
 import { getDb } from "@/lib/db";
+import { 
+  isCloudDbEnabled, 
+  cloudGetStudents, 
+  cloudSaveStudents, 
+  cloudDeleteStudent, 
+  cloudUpdateStudent 
+} from "@/lib/cloud-db";
 import { jwtVerify } from 'jose';
 
 export const dynamic = 'force-dynamic';
@@ -68,12 +75,29 @@ export async function GET(req: Request) {
       user = { id: 1, name: 'Local Admin', username: 'localadmin', role: 'super_admin' };
     }
 
-    const db = getDb();
-    ensureTables(db);
-
     const url = new URL(req.url);
     const requestedCounselorId = url.searchParams.get('counselorId');
     const isSuperAdmin = user?.role === 'super_admin';
+
+    // Prevent unauthorized cross-account access for counselors
+    if (!isSuperAdmin && user?.id && requestedCounselorId && requestedCounselorId !== 'all' && Number(requestedCounselorId) !== Number(user.id)) {
+      return NextResponse.json({ error: 'Access denied: You can only view your own assigned students.' }, { status: 403 });
+    }
+
+    if (isCloudDbEnabled()) {
+      try {
+        const rows = await cloudGetStudents(
+          requestedCounselorId && requestedCounselorId !== 'all' ? Number(requestedCounselorId) : (isSuperAdmin ? null : (user?.id ? Number(user.id) : 1)),
+          isSuperAdmin
+        );
+        return NextResponse.json(rows);
+      } catch (cloudErr) {
+        console.warn('[CloudDB] Cloud fetch fallback to local DB:', cloudErr);
+      }
+    }
+
+    const db = getDb();
+    ensureTables(db);
 
     let rows: any[] = [];
     if (isSuperAdmin) {
@@ -155,8 +179,21 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ error: 'Missing ID' }, { status: 400 });
     }
 
-    const db = getDb();
     const isSuperAdmin = user?.role === 'super_admin';
+
+    if (isCloudDbEnabled()) {
+      try {
+        const ok = await cloudDeleteStudent(Number(id), user?.id ? Number(user.id) : 1, isSuperAdmin);
+        if (!ok && !isSuperAdmin) {
+          return NextResponse.json({ error: 'Student not found or access denied.' }, { status: 403 });
+        }
+        return NextResponse.json({ success: true });
+      } catch (cloudErr) {
+        console.warn('[CloudDB] Cloud delete fallback to local DB:', cloudErr);
+      }
+    }
+
+    const db = getDb();
 
     if (isSuperAdmin) {
       const stmt = db.prepare('DELETE FROM students WHERE id = ?');
@@ -192,8 +229,21 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: 'Missing id' }, { status: 400 });
     }
 
-    const db = getDb();
     const isSuperAdmin = user?.role === 'super_admin' || (!user && !isCloudEnv);
+
+    if (isCloudDbEnabled()) {
+      try {
+        const ok = await cloudUpdateStudent(Number(id), studentDetails, studentSummary, user?.id ? Number(user.id) : 1, isSuperAdmin);
+        if (!ok && !isSuperAdmin) {
+          return NextResponse.json({ error: 'Student record not found or access denied.' }, { status: 403 });
+        }
+        return NextResponse.json({ success: true });
+      } catch (cloudErr) {
+        console.warn('[CloudDB] Cloud patch fallback to local DB:', cloudErr);
+      }
+    }
+
+    const db = getDb();
 
     if (studentDetails && typeof studentSummary === 'string') {
       const detailsStr = typeof studentDetails === 'string' ? studentDetails : JSON.stringify(studentDetails);
@@ -260,10 +310,19 @@ export async function POST(req: Request) {
 
     const body = await req.json();
     const list = Array.isArray(body) ? body : [body];
+    const isSuperAdmin = user?.role === 'super_admin';
+
+    if (isCloudDbEnabled()) {
+      try {
+        const savedIds = await cloudSaveStudents(list, user?.id ? Number(user.id) : 1, isSuperAdmin);
+        return NextResponse.json({ success: true, id: savedIds[0] ?? null, ids: savedIds });
+      } catch (cloudErr) {
+        console.warn('[CloudDB] Cloud post fallback to local DB:', cloudErr);
+      }
+    }
+
     const db = getDb();
     ensureTables(db);
-
-    const isSuperAdmin = user?.role === 'super_admin';
 
     const upsertStmt = db.prepare(`
       INSERT INTO students (

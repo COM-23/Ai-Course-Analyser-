@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { isCloudDbEnabled, cloudSaveStudent, cloudSaveComparison } from "@/lib/cloud-db";
 import { getExchangeRates, FALLBACK_RATES, ALL_TARGET_COUNTRIES, getCountryCurrencyInfo } from "@/lib/currency";
 import * as cheerio from 'cheerio';
 import google from 'googlethis';
@@ -2658,6 +2659,27 @@ export async function POST(req: NextRequest) {
     }
 
     try {
+      if (isCloudDbEnabled()) {
+        try {
+          const isSuper = authUser?.role === 'super_admin';
+          if (!primaryStudentId) {
+            const savedId = await cloudSaveStudent(analysis, counselorId, isSuper);
+            if (savedId) (analysis as any).id = savedId;
+          } else {
+            (analysis as any).id = Number(primaryStudentId);
+          }
+          if (isComparison) {
+            const targetCompareStudentId = primaryStudentId || (analysis as any).id;
+            if (targetCompareStudentId) {
+              const compArray = await cloudSaveComparison(targetCompareStudentId, analysis, destinationCountry, counselorId, isSuper);
+              (analysis as any).comparisonData = compArray;
+            }
+          }
+        } catch (cloudSaveErr) {
+          console.warn('[CloudDB] Cloud save fallback to local DB:', cloudSaveErr);
+        }
+      }
+
       getDb().exec(`
         CREATE TABLE IF NOT EXISTS students (
           id INTEGER PRIMARY KEY AUTOINCREMENT,

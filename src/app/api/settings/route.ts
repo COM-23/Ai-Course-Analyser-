@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from 'next/server';
 import { getDb } from "@/lib/db";
+import { isCloudDbEnabled, cloudGetSettings, cloudSaveSetting, getCloudDbStatus } from "@/lib/cloud-db";
 import { jwtVerify } from 'jose';
 
 const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET || 'super-secret-default-key');
@@ -24,6 +25,15 @@ export async function GET(req: Request) {
     if (!isAllowed) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     try {
+      let settings: any = {};
+      if (isCloudDbEnabled()) {
+        try {
+          settings = await cloudGetSettings();
+        } catch (cloudErr) {
+          console.warn("[CloudDB] Settings fetch fallback:", cloudErr);
+        }
+      }
+
       getDb().exec(`
         CREATE TABLE IF NOT EXISTS settings (
           id TEXT PRIMARY KEY,
@@ -32,7 +42,7 @@ export async function GET(req: Request) {
       `);
 
       const rows = getDb().prepare('SELECT id, value FROM settings').all();
-      const settings = rows.reduce((acc: any, row: any) => {
+      const localSettings = rows.reduce((acc: any, row: any) => {
         try {
           acc[row.id] = JSON.parse(row.value);
         } catch {
@@ -40,6 +50,9 @@ export async function GET(req: Request) {
         }
         return acc;
       }, {});
+
+      settings = { ...localSettings, ...settings };
+      settings.cloudDbStatus = await getCloudDbStatus();
       
       if (settings.aiEndpoint && (
         String(settings.aiEndpoint).includes('entrepreneurs-psp-navigate-maternity') ||
@@ -72,6 +85,12 @@ export async function POST(req: Request) {
     }
     
     try {
+      if (isCloudDbEnabled()) {
+        for (const [key, val] of Object.entries(data)) {
+          try { await cloudSaveSetting(key, val); } catch (e) {}
+        }
+      }
+
       getDb().exec(`
         CREATE TABLE IF NOT EXISTS settings (
           id TEXT PRIMARY KEY,

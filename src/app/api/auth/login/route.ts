@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from 'next/server';
 import { getDb } from "@/lib/db";
+import { isCloudDbEnabled, cloudGetUser, cloudUpdateUserLoginAttempts } from "@/lib/cloud-db";
 import bcrypt from 'bcryptjs';
 import { SignJWT } from 'jose';
 
@@ -49,8 +50,19 @@ export async function POST(req: Request) {
       console.warn("Could not read settings from DB, using safe defaults", e);
     }
 
-    const stmt = getDb().prepare('SELECT * FROM users WHERE username = ?');
-    const user = stmt.get(username.toLowerCase()) as any;
+    let user: any = null;
+    if (isCloudDbEnabled()) {
+      try {
+        user = await cloudGetUser(username.toLowerCase());
+      } catch (cloudUserErr) {
+        console.warn('[CloudDB] Cloud login fallback to local DB:', cloudUserErr);
+      }
+    }
+
+    if (!user) {
+      const stmt = getDb().prepare('SELECT * FROM users WHERE username = ?');
+      user = stmt.get(username.toLowerCase()) as any;
+    }
 
     if (!user) {
       return NextResponse.json({ error: 'Invalid username or password' }, { status: 401 });
@@ -80,6 +92,9 @@ export async function POST(req: Request) {
       }
       
       try {
+        if (isCloudDbEnabled()) {
+          await cloudUpdateUserLoginAttempts(user.id, attempts, lockoutStr);
+        }
         getDb().prepare('UPDATE users SET failedLoginAttempts = ?, lockoutUntil = ? WHERE id = ?').run(attempts, lockoutStr, user.id);
       } catch (e) {
         console.warn("Could not update failedLoginAttempts in DB:", e);
@@ -93,6 +108,9 @@ export async function POST(req: Request) {
 
     // Success! Reset attempts safely
     try {
+      if (isCloudDbEnabled()) {
+        await cloudUpdateUserLoginAttempts(user.id, 0, null);
+      }
       getDb().prepare('UPDATE users SET failedLoginAttempts = 0, lockoutUntil = NULL WHERE id = ?').run(user.id);
     } catch (e) {
       console.warn("Could not reset failedLoginAttempts in DB:", e);

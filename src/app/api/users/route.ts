@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from 'next/server';
 import { getDb } from "@/lib/db";
+import { isCloudDbEnabled, cloudGetUsers, cloudCreateUser, cloudDeleteUser } from "@/lib/cloud-db";
 import bcrypt from 'bcryptjs';
 
 const defaultUsers = [
@@ -21,6 +22,15 @@ const defaultUsers = [
 
 export async function GET() {
   try {
+    if (isCloudDbEnabled()) {
+      try {
+        const cloudUsers = await cloudGetUsers();
+        if (cloudUsers.length > 0) return NextResponse.json(cloudUsers);
+      } catch (cloudErr) {
+        console.warn('[CloudDB] Users fetch fallback:', cloudErr);
+      }
+    }
+
     const stmt = getDb().prepare('SELECT id, name, username, role, createdAt FROM users');
     let users = stmt.all();
 
@@ -68,6 +78,13 @@ export async function POST(req: Request) {
     }
     
     const passwordHash = await bcrypt.hash(password, 10);
+
+    if (isCloudDbEnabled()) {
+      try {
+        const newUser = await cloudCreateUser(name, username, passwordHash, role);
+        if (newUser) return NextResponse.json(newUser, { status: 201 });
+      } catch (e) {}
+    }
     
     const stmt = getDb().prepare('INSERT INTO users (name, username, passwordHash, role) VALUES (?, ?, ?, ?)');
     const info = stmt.run(name, username.toLowerCase(), passwordHash, role);
@@ -83,6 +100,13 @@ export async function DELETE(req: Request) {
   try {
     const { id } = await req.json();
     if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
+
+    if (isCloudDbEnabled()) {
+      try {
+        await cloudDeleteUser(Number(id));
+        return NextResponse.json({ success: true });
+      } catch (e) {}
+    }
 
     const stmt = getDb().prepare('DELETE FROM users WHERE id = ?');
     stmt.run(id);

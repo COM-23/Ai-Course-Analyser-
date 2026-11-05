@@ -654,6 +654,36 @@ export default function Home() {
   const [isCheckingAi, setIsCheckingAi] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
+  const [cloudDbInfo, setCloudDbInfo] = useState<{ connected: boolean; provider: string; error?: string }>({
+    connected: false,
+    provider: 'Local Embedded SQLite'
+  });
+  const [isSyncingCloud, setIsSyncingCloud] = useState(false);
+  const [lastSyncTime, setLastSyncTime] = useState<string>("");
+  const [remoteCloudSyncUrl, setRemoteCloudSyncUrl] = useState<string>("");
+
+  const triggerCrossDeviceSync = async () => {
+    if (!currentUser) return;
+    setIsSyncingCloud(true);
+    try {
+      const endpoint = currentUser.role === 'super_admin' ? '/api/students' : `/api/students?counselorId=${currentUser.id}`;
+      const res = await fetch(endpoint, { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          setHistory(data);
+          const userStorageKey = `learn_overseas_students_${currentUser.id}`;
+          try { localStorage.setItem(userStorageKey, JSON.stringify(data)); } catch (e) {}
+        }
+      }
+      setLastSyncTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+    } catch (e) {
+      console.warn("Cross-device sync notice:", e);
+    } finally {
+      setIsSyncingCloud(false);
+    }
+  };
+
   function cleanAndNormalizeAiUrl(input: string): string {
     if (!input) return '';
     let str = input.trim();
@@ -1085,6 +1115,8 @@ export default function Home() {
           
           if (data.agencyName) setAgencyName(data.agencyName);
           if (data.aiStrictness) setAiStrictness(data.aiStrictness);
+          if (data.cloudDbStatus) setCloudDbInfo(data.cloudDbStatus);
+          if (data.remoteCloudSyncUrl) setRemoteCloudSyncUrl(data.remoteCloudSyncUrl);
           let localEp = "";
           try { localEp = localStorage.getItem('learn_overseas_custom_ai_endpoint') || ""; } catch (e) {}
           if (localEp && (
@@ -3127,9 +3159,24 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
         {activeTab === "roster" && (
           <div className="flex-1 flex flex-col animate-in fade-in slide-in-from-bottom-4 duration-500 overflow-hidden">
             <header className="mb-8 shrink-0 flex flex-col lg:flex-row lg:items-end justify-between gap-4">
-              <div>
-                <h2 className="text-3xl font-black text-white">Student Roster</h2>
-                <p className="text-sm text-slate-400 font-medium mt-1">CRM pipeline & counselor assignments</p>
+              <div className="flex items-center gap-4">
+                <div>
+                  <h2 className="text-3xl font-black text-white">Student Roster</h2>
+                  <p className="text-sm text-slate-400 font-medium mt-1">CRM pipeline & counselor assignments</p>
+                </div>
+                <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-xs font-bold text-slate-300">
+                  <span className={`w-2 h-2 rounded-full ${cloudDbInfo.connected ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]' : 'bg-sky-400'}`} />
+                  <span>{cloudDbInfo.provider}</span>
+                  {lastSyncTime && <span className="text-[10px] text-slate-500 font-normal">({lastSyncTime})</span>}
+                  <button 
+                    onClick={triggerCrossDeviceSync}
+                    disabled={isSyncingCloud}
+                    title="Synchronize database across devices"
+                    className="p-1 hover:text-[#FC7133] transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isSyncingCloud ? 'animate-spin text-[#FC7133]' : ''}`} />
+                  </button>
+                </div>
               </div>
               <div className="flex flex-wrap items-center gap-3 mt-4 lg:mt-0">
                 <div className="relative">
@@ -3930,6 +3977,57 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
                           >
                             + 5% Zoom
                           </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Centralized Cloud Database & Cross-Device Sync */}
+                    <div className="bg-[#18181B] border border-white/10 rounded-2xl p-6 space-y-4 hover:border-[#FC7133]/30 transition-colors shadow-lg max-w-4xl">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div>
+                          <h3 className="text-base font-bold text-white flex items-center gap-2.5">
+                            <Database className="w-4 h-4 text-[#FC7133]" /> Centralized Cloud Database & Sync
+                          </h3>
+                          <p className="text-xs text-slate-400 mt-1">
+                            Synchronizes student profiles, comparisons, and assessments across devices (Web, Desktop, and Mobile).
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={triggerCrossDeviceSync}
+                            disabled={isSyncingCloud}
+                            className="px-4 py-2 bg-[#FC7133]/10 hover:bg-[#FC7133]/20 border border-[#FC7133]/30 text-[#FC7133] rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                          >
+                            <RefreshCw className={`w-3.5 h-3.5 ${isSyncingCloud ? 'animate-spin' : ''}`} />
+                            {isSyncingCloud ? 'Syncing...' : 'Sync Cloud Database'}
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+                        <div className="p-4 rounded-xl bg-black/40 border border-white/5 space-y-1">
+                          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Active Architecture</span>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className={`w-2.5 h-2.5 rounded-full ${cloudDbInfo.connected ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]' : 'bg-sky-400 shadow-[0_0_8px_rgba(56,189,248,0.8)]'}`} />
+                            <span className="text-xs font-bold text-slate-200">{cloudDbInfo.provider}</span>
+                          </div>
+                          <p className="text-[11px] text-slate-400 mt-1">
+                            {cloudDbInfo.connected 
+                              ? 'Connected to centralized cloud PostgreSQL (Supabase / Neon). Live cross-device sync active.' 
+                              : 'Running with embedded local engine. Connect DATABASE_URL in environment for automatic cloud replication.'}
+                          </p>
+                        </div>
+
+                        <div className="p-4 rounded-xl bg-black/40 border border-white/5 space-y-1">
+                          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Cross-Device Status</span>
+                          <div className="flex items-center gap-2 mt-1">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                            <span className="text-xs font-bold text-slate-200">User Scoped & Isolated</span>
+                          </div>
+                          <p className="text-[11px] text-slate-400 mt-1">
+                            {lastSyncTime ? `Last synced at ${lastSyncTime}.` : 'Auto-sync active on each evaluation and login.'} All data is strictly bound to your counselor account.
+                          </p>
                         </div>
                       </div>
                     </div>
