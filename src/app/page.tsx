@@ -49,6 +49,7 @@ import {
   ZoomOut,
   PanelLeftClose,
   PanelLeft,
+  GraduationCap,
   LogOut
 } from "lucide-react";
 import * as htmlToImage from 'html-to-image';
@@ -75,6 +76,20 @@ type CollegeMatch = {
   applicationDeadline: string;
   tuitionConverted?: string;
   courseLink?: string;
+  scholarshipAvailable?: boolean;
+  duration?: string | number;
+  campus?: string;
+  ieltsScore?: number;
+  toeflScore?: number;
+  pteScore?: number;
+  detScore?: number;
+  greScore?: number;
+  gmatScore?: number;
+  maxBacklogs?: number;
+  entryRequirement?: string;
+  intakes?: string;
+  tuitionFeeFormatted?: string;
+  logoUrl?: string;
 };
 
 type AnalysisResult = {
@@ -89,6 +104,8 @@ type AnalysisResult = {
     originalGrade?: string;
     degreeObjective: string;
     primaryDomain: string;
+    exactCourse?: string;
+    targetCourse?: string;
     testScores: string;
     destinationCountry: string;
     targetIntake: string;
@@ -472,6 +489,7 @@ export default function Home() {
   
   const [manualText, setManualText] = useState("");
   const [additionalContext, setAdditionalContext] = useState("");
+  const [preferredCourse, setPreferredCourse] = useState("");
   
   // Generate dynamic intake terms
   const currentYear = new Date().getFullYear();
@@ -1344,6 +1362,7 @@ export default function Home() {
         additionalContext: context,
         destinationCountry,
         targetIntake: intake,
+        targetCourse: preferredCourse.trim(),
         email: studentEmail.trim(),
         phone: studentPhone.trim(),
         counselorId: currentUser ? currentUser.id : 1,
@@ -1512,6 +1531,7 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
           additionalContext: context,
           destinationCountry: country,
           targetIntake: intake,
+          targetCourse: preferredCourse.trim(),
           counselorId: currentUser ? currentUser.id : 1,
           primaryStudentId: activeStudentId,
           compareCountryIndex: i,
@@ -1576,6 +1596,13 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
           id: targetId,
           comparisonData: accumulated
         };
+        if (preferredCourse && preferredCourse.trim()) {
+          if (!finalComparisonStudent.studentDetails) finalComparisonStudent.studentDetails = { ...baseStudent.studentDetails } as any;
+          finalComparisonStudent.studentDetails = {
+            ...(finalComparisonStudent.studentDetails || {}),
+            targetCourse: preferredCourse.trim()
+          } as any;
+        }
 
         if (!finalComparisonStudent.isAiGenerated) {
           try {
@@ -1595,7 +1622,7 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
           if (exists) {
             updated = prev.map(s => {
               if (s.id === targetId || (s.studentDetails?.name && s.studentDetails.name === baseStudent?.studentDetails?.name)) {
-                return { ...s, comparisonData: accumulated, studentSummary: finalComparisonStudent.studentSummary, isAiGenerated: finalComparisonStudent.isAiGenerated };
+                return { ...s, comparisonData: accumulated, studentSummary: finalComparisonStudent.studentSummary, isAiGenerated: finalComparisonStudent.isAiGenerated, studentDetails: finalComparisonStudent.studentDetails };
               }
               return s;
             });
@@ -1615,7 +1642,14 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
           body: JSON.stringify(finalComparisonStudent)
-        }).catch(() => {});
+        })
+        .then(r => r.json())
+        .then(res => {
+          if (res?.id) {
+            setResult(prev => prev ? { ...prev, id: res.id } : prev);
+          }
+        })
+        .catch(() => {});
       }
     } catch (err) {
       console.error(err);
@@ -1631,6 +1665,7 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
     setPdfUrl(null);
     setManualText("");
     setAdditionalContext("");
+    setPreferredCourse("");
     setStudentEmail("");
     setStudentPhone("");
     setError(null);
@@ -1647,6 +1682,7 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
 
   const handleViewStudent = (student: AnalysisResult) => {
     setResult(student);
+    setPreferredCourse(student.studentDetails?.targetCourse || "");
     setStudentEmail(student.studentDetails?.email && student.studentDetails.email !== "Not Provided" ? student.studentDetails.email : "");
     setStudentPhone(student.studentDetails?.phone && student.studentDetails.phone !== "Not Provided" ? student.studentDetails.phone : "");
     if (student.studentDetails?.originalContext) {
@@ -2109,7 +2145,7 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
       </aside>
 
       {/* Main Content Area */}
-      <main className="relative z-10 flex-1 flex flex-col h-screen overflow-hidden px-3 sm:px-4 lg:px-5 xl:px-6 py-3 sm:py-4 lg:py-5 xl:py-6">
+      <main className="relative z-10 flex-1 flex flex-col h-screen min-h-0 overflow-y-auto lg:overflow-hidden px-3 sm:px-4 lg:px-5 xl:px-6 py-3 sm:py-4 lg:py-5 xl:py-6">
         
         {activeTab === "analyzer" && (
           <>
@@ -2139,10 +2175,10 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
         </header>
 
         {/* Main Interface Layout */}
-        <div className="flex-1 flex gap-4 xl:gap-6 min-h-0">
+        <div className="flex-1 flex flex-col lg:flex-row gap-4 xl:gap-6 min-h-0 min-w-0 overflow-y-auto lg:overflow-hidden">
           
           {/* Left Panel: Input & Controls */}
-          {!compareMode && (<div className="w-full lg:w-[38%] xl:w-[40%] flex flex-col gap-4 xl:gap-6">
+          {!compareMode && (<div className="w-full lg:w-[38%] xl:w-[40%] flex flex-col gap-4 xl:gap-6 overflow-y-auto custom-scrollbar max-h-full min-h-0 shrink-0 pr-0.5">
             
             {/* Input Selection Card */}
             <div className="bg-[#111113]/80 backdrop-blur-xl border border-white/5 rounded-3xl p-4 sm:p-5 xl:p-6 shadow-2xl flex flex-col min-h-0 flex-1">
@@ -2237,7 +2273,19 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
                 </div>
                 <div className="space-y-1.5 col-span-2 lg:col-span-1">
                   <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Budget Constraints</label>
-                  <input type="text" value={additionalContext} onChange={(e) => setAdditionalContext(e.target.value)} placeholder="e.g. 50 Lakhs or $60,000" className="w-full px-4 py-3 bg-black/40 border border-white/5 rounded-xl text-sm text-slate-200 outline-none focus:border-[#FC7133]/50 focus:ring-1 focus:ring-[#FC7133]/30 placeholder:text-slate-600 transition-all" />
+                  <input type="text" value={additionalContext} onChange={(e) => setAdditionalContext(e.target.value)} placeholder="e.g. 10 Lakhs or $25,000" className="w-full px-4 py-3 bg-black/40 border border-white/5 rounded-xl text-sm text-slate-200 outline-none focus:border-[#FC7133]/50 focus:ring-1 focus:ring-[#FC7133]/30 placeholder:text-slate-600 transition-all" />
+                </div>
+                <div className="space-y-1.5 col-span-2 lg:col-span-1">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
+                    <GraduationCap className="w-3 h-3 text-[#FC7133]" /> Preferred Course / Subject
+                  </label>
+                  <input 
+                    type="text" 
+                    value={preferredCourse} 
+                    onChange={(e) => setPreferredCourse(e.target.value)} 
+                    placeholder="e.g. MSc Data Science, MBA, Cybersecurity" 
+                    className="w-full px-4 py-3 bg-black/40 border border-white/5 rounded-xl text-sm text-slate-200 outline-none focus:border-[#FC7133]/50 focus:ring-1 focus:ring-[#FC7133]/30 placeholder:text-slate-600 transition-all" 
+                  />
                 </div>
                 <div className="space-y-1.5 col-span-2 sm:col-span-1">
                   <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
@@ -2303,7 +2351,7 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
           )} {/* End Left Panel */}
 
           {/* Right Panel: Intelligence Output */}
-          <div className={`w-full ${compareMode ? "lg:w-full" : "lg:w-[62%] xl:w-[60%]"} bg-[#111113]/80 backdrop-blur-xl border border-white/5 rounded-3xl shadow-2xl overflow-hidden flex flex-col h-full relative`}>
+          <div className={`w-full ${compareMode ? "lg:w-full" : "lg:w-[62%] xl:w-[60%]"} bg-[#111113]/80 backdrop-blur-xl border border-white/5 rounded-3xl shadow-2xl overflow-hidden flex flex-col h-full min-h-0 min-w-0 relative`}>
             
             {/* Header */}
             <div className="px-5 xl:px-8 py-4 xl:py-6 border-b border-white/5 bg-black/20 flex justify-between items-center z-10">
@@ -2528,7 +2576,14 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
                             <Pencil className="w-3.5 h-3.5" />
                           </button>
                         </div>
-                        <p className="text-sm font-bold text-[#FC7133]">{res.studentDetails?.primaryDomain} Applicant</p>
+                        <p className="text-sm font-bold text-[#FC7133]">
+                          {res.studentDetails?.primaryDomain} Applicant
+                          {(res.studentDetails?.targetCourse || res.studentDetails?.exactCourse) && (
+                            <span className="text-slate-300 font-semibold ml-2">
+                              • Preferred Course: <span className="text-white font-bold">{res.studentDetails?.targetCourse || res.studentDetails?.exactCourse}</span>
+                            </span>
+                          )}
+                        </p>
                       </div>
                     </div>
 
@@ -2837,8 +2892,23 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
                                       <div className="grid grid-cols-1 md:grid-cols-2 gap-8 animate-in fade-in slide-in-from-top-2 duration-300">
                                         <div>
                                           <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Recommended Course</p>
-                                          <div className="flex flex-wrap items-center gap-3 mb-5">
+                                          <div className="flex flex-wrap items-center gap-2 mb-3">
                                             <p className="text-sm font-black text-[#FC7133]">{uni.recommendedCourse}</p>
+                                            {uni.scholarshipAvailable && (
+                                              <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                                                Scholarship Available
+                                              </span>
+                                            )}
+                                            {uni.duration && (
+                                              <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-white/10 text-slate-300 border border-white/10">
+                                                ⏱️ {uni.duration}
+                                              </span>
+                                            )}
+                                            {uni.campus && (
+                                              <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-white/10 text-slate-300 border border-white/10">
+                                                📍 {uni.campus}
+                                              </span>
+                                            )}
                                             {uni.courseLink && (
                                               <a
                                                 href={uni.courseLink}
@@ -2851,6 +2921,20 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
                                               </a>
                                             )}
                                           </div>
+
+                                          {/* Minimum Test Score Cutoffs from programs.csv */}
+                                          {(uni.ieltsScore || uni.toeflScore || uni.pteScore || uni.detScore || uni.greScore || uni.gmatScore || uni.maxBacklogs !== undefined) && (
+                                            <div className="flex flex-wrap gap-2 mb-4 p-2.5 rounded-xl bg-black/40 border border-white/5">
+                                              {uni.ieltsScore ? <span className="text-[11px] text-slate-300 font-semibold"><span className="text-[#FC7133] font-bold">IELTS:</span> {uni.ieltsScore}</span> : null}
+                                              {uni.pteScore ? <span className="text-[11px] text-slate-300 font-semibold"><span className="text-[#F9D440] font-bold">PTE:</span> {uni.pteScore}</span> : null}
+                                              {uni.toeflScore ? <span className="text-[11px] text-slate-300 font-semibold"><span className="text-cyan-400 font-bold">TOEFL:</span> {uni.toeflScore}</span> : null}
+                                              {uni.detScore ? <span className="text-[11px] text-slate-300 font-semibold"><span className="text-emerald-400 font-bold">DET:</span> {uni.detScore}</span> : null}
+                                              {uni.greScore ? <span className="text-[11px] text-slate-300 font-semibold"><span className="text-violet-400 font-bold">GRE:</span> {uni.greScore}</span> : null}
+                                              {uni.gmatScore ? <span className="text-[11px] text-slate-300 font-semibold"><span className="text-amber-400 font-bold">GMAT:</span> {uni.gmatScore}</span> : null}
+                                              {uni.maxBacklogs !== undefined ? <span className="text-[11px] text-slate-300 font-semibold"><span className="text-rose-400 font-bold">Max Backlogs:</span> {uni.maxBacklogs}</span> : null}
+                                            </div>
+                                          )}
+
                                           <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">AI Rationale</p>
                                           <p className="text-xs text-slate-300 italic leading-relaxed border-l-2 border-[#FC7133]/50 pl-3">"{uni.rationale}"</p>
                                         </div>

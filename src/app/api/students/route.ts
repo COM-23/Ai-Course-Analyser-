@@ -284,9 +284,19 @@ export async function POST(req: Request) {
       ON CONFLICT(id) DO UPDATE SET
         studentDetails = excluded.studentDetails,
         studentSummary = excluded.studentSummary,
-        comparisonData = excluded.comparisonData,
-        recommendedColleges = excluded.recommendedColleges
+        strengths = excluded.strengths,
+        areasForImprovement = excluded.areasForImprovement,
+        careerOpportunities = excluded.careerOpportunities,
+        recommendedColleges = excluded.recommendedColleges,
+        visaDifficulty = excluded.visaDifficulty,
+        keySkillsIdentified = excluded.keySkillsIdentified,
+        estimatedBudgetRange = excluded.estimatedBudgetRange,
+        counselor_id = excluded.counselor_id,
+        comparisonData = COALESCE(excluded.comparisonData, students.comparisonData),
+        createdAt = CURRENT_TIMESTAMP
     `);
+
+    const savedIds: number[] = [];
 
     for (const s of list) {
       if (!s || !s.studentDetails) continue;
@@ -300,7 +310,15 @@ export async function POST(req: Request) {
           targetCounselorId = Number(s.counselor_id || 1);
         }
 
-        let studentRecordId = s.id ? Number(s.id) : null;
+        let studentRecordId: number | null = null;
+        if (s.id && Number(s.id) < 1000000000) {
+          try {
+            const exists = db.prepare('SELECT id FROM students WHERE id = ?').get(Number(s.id)) as any;
+            if (exists?.id) studentRecordId = Number(exists.id);
+          } catch (e) {}
+        }
+
+        // If not matched by valid primary key, look up by email or name
         if (!studentRecordId) {
           try {
             const sDet = typeof s.studentDetails === 'string' ? JSON.parse(s.studentDetails) : s.studentDetails;
@@ -315,7 +333,7 @@ export async function POST(req: Request) {
           } catch (lookupErr) {}
         }
 
-        upsertStmt.run(
+        const runResult = upsertStmt.run(
           studentRecordId,
           typeof s.studentDetails === 'string' ? s.studentDetails : JSON.stringify(s.studentDetails),
           s.studentSummary || '',
@@ -329,10 +347,13 @@ export async function POST(req: Request) {
           targetCounselorId,
           s.comparisonData ? (typeof s.comparisonData === 'string' ? s.comparisonData : JSON.stringify(s.comparisonData)) : null
         );
+
+        const effectiveId = studentRecordId || (runResult && runResult.lastInsertRowid ? Number(runResult.lastInsertRowid) : null);
+        if (effectiveId) savedIds.push(effectiveId);
       } catch (err) {}
     }
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, id: savedIds[0] ?? null, ids: savedIds });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }

@@ -522,7 +522,9 @@ class LocalHeuristicBrain {
     degreeObjective: string,
     primaryDomain: string,
     extractedCgpa: number,
-    activeBacklogs: number
+    activeBacklogs: number,
+    maxBudgetUsd: number | null = null,
+    rates: Record<string, number> = {}
   ): any[] {
     try {
       const db = getDb();
@@ -660,19 +662,46 @@ class LocalHeuristicBrain {
         whereClauses.push("(p.min_cgpa <= 8.0 OR p.min_cgpa IS NULL)");
       }
 
+      // Budget-aware constraint: filter out programs exceeding student budget (+ 15% reach tolerance)
+      let maxTuitionFilter: number | null = null;
+      if (maxBudgetUsd && maxBudgetUsd > 0) {
+        const lowerC = (destinationCountry || "").toLowerCase().trim();
+        let curr = "USD";
+        if (lowerC.includes("united kingdom") || lowerC === "uk") curr = "GBP";
+        else if (lowerC.includes("canada")) curr = "CAD";
+        else if (lowerC.includes("australia")) curr = "AUD";
+        else if (lowerC.includes("new zealand")) curr = "NZD";
+        else if (["germany", "france", "ireland", "spain", "italy", "netherlands", "switzerland", "sweden", "austria", "belgium", "finland", "denmark"].some(c => lowerC.includes(c))) curr = "EUR";
+        else if (lowerC.includes("singapore")) curr = "SGD";
+        else if (lowerC.includes("emirates") || lowerC.includes("uae") || lowerC.includes("dubai")) curr = "AED";
+
+        const targetRate = rates[curr] || FALLBACK_RATES[curr] || 1;
+        maxTuitionFilter = Math.round(maxBudgetUsd * targetRate * 1.15);
+        if (maxTuitionFilter > 0) {
+          whereClauses.push("(p.tuition_amount = 0 OR p.tuition_amount IS NULL OR p.tuition_amount <= ?)");
+          queryParams.push(maxTuitionFilter);
+        }
+      }
+
       const sql = `
         SELECT 
-          p.id, p.name as course_name, p.university_name, p.university_city, p.country_name,
-          p.study_level, p.tuition_amount, p.tuition_currency, p.min_cgpa, p.course_link,
-          p.deadlines, p.intakes, p.entry_requirement, p.scholarship_available, p.domain
+          p.id, p.name as course_name, p.university_name, p.university_city, p.university_state, p.country_name,
+          p.study_level, p.tuition_amount, p.tuition_currency, p.tuition_fee_formatted, p.min_cgpa, p.max_backlogs,
+          p.ielts_score, p.toefl_score, p.pte_score, p.det_score, p.gre_score, p.gmat_score,
+          p.duration, p.campus, p.course_link, p.deadlines, p.intakes, p.entry_requirement,
+          p.scholarship_available, p.domain, p.logo_url
         FROM programs p
         WHERE ${whereClauses.join(' AND ')}
         ORDER BY 
+          ${maxTuitionFilter ? 'CASE WHEN p.tuition_amount > 0 AND p.tuition_amount <= ? THEN 0 ELSE 1 END,' : ''}
           CASE WHEN p.min_cgpa IS NOT NULL AND p.min_cgpa <= ? THEN 0 ELSE 1 END,
           p.min_cgpa DESC
-        LIMIT 25
+        LIMIT 50
       `;
 
+      if (maxTuitionFilter) {
+        queryParams.push(maxTuitionFilter);
+      }
       queryParams.push(extractedCgpa);
       const rows = db.prepare(sql).all(...queryParams);
       return rows;
@@ -682,7 +711,7 @@ class LocalHeuristicBrain {
     }
   }
 
-  async analyze(text: string, context: string, manualCountry: string, manualIntake: string, aiStrictness: string = "standard", realtimeFetching: boolean = false, customAiEndpoint: string = "", isComparison: boolean = false, requestedModel: string = "", clientProvidedApiKey: string = "", manualEmail: string = "", manualPhone: string = "") {
+  async analyze(text: string, context: string, manualCountry: string, manualIntake: string, aiStrictness: string = "standard", realtimeFetching: boolean = false, customAiEndpoint: string = "", isComparison: boolean = false, requestedModel: string = "", clientProvidedApiKey: string = "", manualEmail: string = "", manualPhone: string = "", manualTargetCourse: string = "") {
     // Strictly identify real cloud serverless environments (Netlify / Vercel / AWS Lambda)
     const isCloudEnv = !!(
       process.env.NETLIFY ||
@@ -1419,6 +1448,9 @@ class LocalHeuristicBrain {
 
     // 3.5 EXTRACT EXPLICIT TARGET COURSE / SPECIALIZATION (Runs before domain scoring to prioritize student's stated goal)
     let explicitTargetCourse = "";
+    if (manualTargetCourse && manualTargetCourse.trim()) {
+      explicitTargetCourse = manualTargetCourse.trim();
+    }
 
     // 1. Explicit labels with or without colon / delimiter
     const labelMatch = lowerText.match(/(?:preferred\s+(?:course|program|degree)|target\s+(?:course|program|degree)|interested\s+in|applying\s+for|course\s+preference|specialization|desired\s+course|opt(?:ing)?\s+for|aiming\s+for|course|program|degree)\s*[:=\-]?(?:\s+is|\s+to)?\s*([a-zA-Z0-9\.\s&/'-]+?)(?=$|\r?\n|[,;]|\b(?:with|having|completed|cgpa|budget|intake|country|fees?|ielts|toefl|in\s+(?:france|germany|usa|uk|canada|australia|ireland|new zealand|singapore|spain|italy|sweden|netherlands))\b)/i);
@@ -1749,19 +1781,35 @@ class LocalHeuristicBrain {
     // Sort colleges by how close their minCgpa is to the student's cgpa (prefer higher ranked colleges that the student qualifies for)
     eligibleColleges.sort((a, b) => b.minCgpa - a.minCgpa);
 
-    // 6. QUERY ACTUAL DEGREE PROGRAMS FROM THE 99,219 PROGRAMS DATASET
+    // 6. QUERY ACTUAL DEGREE PROGRAMS FROM THE 99,219 PROGRAMS DATASET (With Budget Constraints & Rich CSV Attributes)
     const matchedPrograms = this.queryMatchingPrograms(
       explicitTargetCourse || exactCourse,
       destinationCountry,
       degreeObjective,
       primaryDomain,
       extractedCgpa,
-      activeBacklogs
+      activeBacklogs,
+      hasExplicitBudget ? extractedBudget : null,
+      rates
     );
 
     if (matchedPrograms.length > 0) {
       for (const prog of matchedPrograms) {
         if (result.recommendedColleges.length >= 15) break;
+
+        const rawTuition = typeof prog.tuition_amount === 'number'
+          ? prog.tuition_amount
+          : parseFloat(String(prog.tuition_amount || 0).replace(/[^\d.]/g, '')) || 0;
+        const currCode = (prog.tuition_currency || 'USD').toUpperCase().trim();
+        const fromRate = rates[currCode] || FALLBACK_RATES[currCode] || 1;
+        const progTuitionUsd = rawTuition / fromRate;
+
+        // Strict budget filtering: if student set an explicit budget, exclude colleges exceeding budget by >15%
+        if (hasExplicitBudget && extractedBudget > 0 && rawTuition > 0) {
+          if (progTuitionUsd > extractedBudget * 1.15) {
+            continue;
+          }
+        }
 
         const minProgCgpa = typeof prog.min_cgpa === 'number' ? prog.min_cgpa : (parseFloat(prog.min_cgpa) || 6.0);
         const cgpaDiff = extractedCgpa - minProgCgpa;
@@ -1789,15 +1837,9 @@ class LocalHeuristicBrain {
         let dynamicDeadline = this.formatDeadlineWithYear(prog.deadlines || "", manualIntake, category);
 
         let tuitionConverted = "";
-        const rawTuition = typeof prog.tuition_amount === 'number'
-          ? prog.tuition_amount
-          : parseFloat(String(prog.tuition_amount || 0).replace(/[^\d.]/g, '')) || 0;
-
         if (rawTuition === 0) {
           tuitionConverted = " (Tuition-Free / €0)";
         } else if (rawTuition > 0) {
-          const currCode = (prog.tuition_currency || 'USD').toUpperCase().trim();
-          const fromRate = rates[currCode] || FALLBACK_RATES[currCode] || 1;
           const inrValue = (rawTuition / fromRate) * inrToUsdRate;
           const lakhs = inrValue / 100000;
           tuitionConverted = ` (≈ ₹${lakhs.toFixed(1)} Lakhs)`;
@@ -1813,12 +1855,17 @@ class LocalHeuristicBrain {
           ? `${prog.university_city}, ${prog.country_name}`
           : prog.country_name;
 
+        let extraRationale = "";
+        if (prog.scholarship_available) extraRationale += " Verified scholarship opportunities available for international applicants.";
+        if (prog.ielts_score) extraRationale += ` Minimum language benchmark: IELTS ${prog.ielts_score}${prog.pte_score ? ` / PTE ${prog.pte_score}` : ''}.`;
+        if (prog.duration) extraRationale += ` Program duration: ${prog.duration} months.`;
+
         result.recommendedColleges.push({
           name: prog.university_name,
           location: locationStr,
           matchPercentage: Math.round(matchPercentage),
           category: category,
-          rationale: `With a CGPA of ${extractedCgpa}, this is a ${category.toLowerCase()} school for ${prog.course_name}. Minimum admission benchmark is CGPA ${minProgCgpa}. Estimated tuition is ${formattedTuition}/year.`,
+          rationale: `With a CGPA of ${extractedCgpa}, this is a ${category.toLowerCase()} school for ${prog.course_name}. Minimum admission benchmark is CGPA ${minProgCgpa}. Estimated tuition is ${formattedTuition}/year.${extraRationale}`,
           recommendedCourse: prog.course_name,
           courseDetails: prog.entry_requirement 
             ? `Accredited ${prog.study_level || 'degree'} track in ${prog.course_name}. Entry Criteria: ${prog.entry_requirement}`
@@ -1828,15 +1875,39 @@ class LocalHeuristicBrain {
           tuition: rawTuition,
           tuitionConverted: tuitionConverted,
           acceptanceRate: category === "Safety" ? "80%" : category === "Target" ? "60%" : "35%",
-          campusSetting: "Urban",
+          campusSetting: prog.campus ? prog.campus : "Urban",
           currency: prog.tuition_currency || "USD",
           applicationDeadline: dynamicDeadline,
-          courseLink: prog.course_link || undefined
+          courseLink: prog.course_link || undefined,
+          scholarshipAvailable: Boolean(prog.scholarship_available),
+          duration: prog.duration ? `${prog.duration} Months` : undefined,
+          campus: prog.campus || undefined,
+          ieltsScore: prog.ielts_score || undefined,
+          toeflScore: prog.toefl_score || undefined,
+          pteScore: prog.pte_score || undefined,
+          detScore: prog.det_score || undefined,
+          greScore: prog.gre_score || undefined,
+          gmatScore: prog.gmat_score || undefined,
+          maxBacklogs: prog.max_backlogs !== null && prog.max_backlogs !== undefined ? prog.max_backlogs : undefined,
+          entryRequirement: prog.entry_requirement || undefined,
+          intakes: prog.intakes || undefined,
+          tuitionFeeFormatted: prog.tuition_fee_formatted || undefined,
+          logoUrl: prog.logo_url || undefined,
         });
       }
     }
 
-    // 7. COMPLEMENT WITH INSTITUTION DATABASE IF NEEDED
+    // 7. COMPLEMENT WITH INSTITUTION DATABASE IF NEEDED (Budget-filtered)
+    if (hasExplicitBudget && extractedBudget > 0) {
+      eligibleColleges = eligibleColleges.filter(uni => {
+        if (uni.tuition === 0) return true;
+        const currCode = (uni.currency || 'USD').toUpperCase().trim();
+        const fromRate = rates[currCode] || FALLBACK_RATES[currCode] || 1;
+        const uniTuitionUsd = uni.tuition / fromRate;
+        return uniTuitionUsd <= extractedBudget * 1.15;
+      });
+    }
+
     for (const uni of eligibleColleges) {
       if (result.recommendedColleges.length >= 15) break;
       if (result.recommendedColleges.some(c => c.name.toLowerCase() === uni.name.toLowerCase())) continue;
@@ -2197,7 +2268,11 @@ Student: ${extractedName}${contactInfo ? ` | Contact: ${contactInfo}` : ''} | Go
             let finalModelUsed = aiModel;
 
             const chatSystemPrompt = "You are an expert admission counselor AI. In 2 concise bullet points, provide high-impact strategic counselor advice evaluating student competitiveness, strengths, and admission roadmap.";
-            const chatUserPrompt = `Candidate: ${extractedName} | Academic CGPA: ${extractedCgpa}/10 in ${primaryDomain.replace(/_/g, ' ')} | Degree Target: ${degreeObjective} in ${degreeDisplay} | Destination: ${countryDisplay} | Budget: ${result.estimatedBudgetRange}`;
+            const targetCourseInfo = explicitTargetCourse ? ` | Preferred Course: ${explicitTargetCourse}` : '';
+            const topMatchesInfo = result.recommendedColleges.length > 0
+              ? ` | Top Matches: ${result.recommendedColleges.slice(0, 3).map(c => `${c.name} (${c.recommendedCourse}, ${c.tuitionConverted || ''}${c.scholarshipAvailable ? ', Scholarship' : ''})`).join('; ')}`
+              : '';
+            const chatUserPrompt = `Candidate: ${extractedName} | Academic CGPA: ${extractedCgpa}/10 in ${primaryDomain.replace(/_/g, ' ')} | Degree Target: ${degreeObjective} in ${degreeDisplay}${targetCourseInfo} | Destination: ${countryDisplay} | Budget: ${result.estimatedBudgetRange}${topMatchesInfo}`;
 
             for (const targetUrl of candidateEndpoints) {
                 const remainingTime = overallDeadline - Date.now();
@@ -2452,6 +2527,7 @@ export async function POST(req: NextRequest) {
     targetIntake = body.targetIntake || body.manualIntake || "Not Decided";
     const manualEmail = (body.email || body.studentEmail || "").trim();
     const manualPhone = (body.phone || body.studentPhone || "").trim();
+    const targetCourse = (body.targetCourse || body.preferredSubject || body.preferredCourse || "").trim();
 
     // Extract authenticated user for role-based counselor assignment
     let authUser: any = null;
@@ -2538,13 +2614,16 @@ export async function POST(req: NextRequest) {
 
     // 2. USE THE CUSTOM INDEPENDENT BRAIN
     const brain = new LocalHeuristicBrain();
-    const analysis = await brain.analyze(extractedText, additionalContext || "", destinationCountry, targetIntake, aiStrictness, realtimeFetching, customAiEndpoint, isComparison, requestedModel, clientProvidedApiKey, manualEmail, manualPhone);
+    const analysis = await brain.analyze(extractedText, additionalContext || "", destinationCountry, targetIntake, aiStrictness, realtimeFetching, customAiEndpoint, isComparison, requestedModel, clientProvidedApiKey, manualEmail, manualPhone, targetCourse);
 
     if (manualEmail) {
       analysis.studentDetails.email = manualEmail;
     }
     if (manualPhone) {
       analysis.studentDetails.phone = manualPhone;
+    }
+    if (targetCourse) {
+      (analysis.studentDetails as any).targetCourse = targetCourse;
     }
 
     try {
@@ -2652,11 +2731,12 @@ export async function POST(req: NextRequest) {
         (analysis as any).id = Number(primaryStudentId);
       }
 
-      // If this is a side-by-side compare run, also save the result into the parent student's comparisonData column
-      if (primaryStudentId) {
+      // If this is a side-by-side compare run, save into student's comparisonData column
+      const targetCompareStudentId = primaryStudentId || (analysis as any).id;
+      if (isComparison && targetCompareStudentId) {
         try {
           // Read existing comparisonData
-          const parentStudent = getDb().prepare('SELECT comparisonData FROM students WHERE id = ?').get(primaryStudentId) as any;
+          const parentStudent = getDb().prepare('SELECT id, comparisonData FROM students WHERE id = ?').get(targetCompareStudentId) as any;
           let compareArray: any[] = [];
           if (parentStudent && parentStudent.comparisonData) {
             try {
@@ -2672,7 +2752,7 @@ export async function POST(req: NextRequest) {
           // Filter out any existing data for this exact country (so if they run USA again, it overwrites the old USA run)
           compareArray = compareArray.filter((c: any) => c.compareCountry !== destinationCountry);
 
-          // Append the new one
+          // Append this country result
           compareArray.push({
             compareCountry: destinationCountry,
             studentDetails: analysis.studentDetails,
@@ -2686,37 +2766,15 @@ export async function POST(req: NextRequest) {
             estimatedBudgetRange: analysis.estimatedBudgetRange,
           });
 
-          if (!parentStudent) {
-            // If parent student doesn't exist in this DB instance (e.g. serverless cold start), insert now with comparisonData
-            const insertStmt = getDb().prepare(`
-              INSERT INTO students (
-                studentDetails, studentSummary, strengths, areasForImprovement,
-                careerOpportunities, recommendedColleges, visaDifficulty,
-                keySkillsIdentified, estimatedBudgetRange, counselor_id, comparisonData
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `);
-            const insertInfo = insertStmt.run(
-              JSON.stringify(analysis.studentDetails),
-              analysis.studentSummary,
-              JSON.stringify(analysis.strengths),
-              JSON.stringify(analysis.areasForImprovement),
-              JSON.stringify(analysis.careerOpportunities),
-              JSON.stringify(analysis.recommendedColleges),
-              analysis.visaDifficulty,
-              JSON.stringify(analysis.keySkillsIdentified),
-              analysis.estimatedBudgetRange,
-              counselorId,
-              JSON.stringify(compareArray)
-            );
-            (analysis as any).id = Number(insertInfo.lastInsertRowid);
-          } else {
+          if (parentStudent) {
             getDb().prepare(`
               UPDATE students SET comparisonData = ?, createdAt = CURRENT_TIMESTAMP WHERE id = ?
             `).run(
               JSON.stringify(compareArray),
-              primaryStudentId
+              targetCompareStudentId
             );
           }
+          (analysis as any).comparisonData = compareArray;
         } catch (compErr) {
           console.error('Error saving comparisonData to parent student:', compErr);
         }

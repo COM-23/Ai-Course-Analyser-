@@ -338,6 +338,11 @@ export const ReportPDFView = React.forwardRef<HTMLDivElement, ReportPDFViewProps
               >
                 <GraduationCap size={15} />
                 {s.primaryDomain || "Higher Education"} Applicant • Target: {s.destinationCountry || "Global"}
+                {(s.targetCourse || s.exactCourse) && (
+                  <span style={{ color: c.textPrimary, fontWeight: 800 }}>
+                    • Preferred Course: {s.targetCourse || s.exactCourse}
+                  </span>
+                )}
               </p>
               {((s.email && s.email !== "Not Provided") || (s.phone && s.phone !== "Not Provided")) && (
                 <div
@@ -366,7 +371,7 @@ export const ReportPDFView = React.forwardRef<HTMLDivElement, ReportPDFViewProps
             </div>
           </div>
 
-          {/* 9-KPI Grid */}
+          {/* 10-KPI Grid */}
           <div
             style={{
               display: "grid",
@@ -377,6 +382,7 @@ export const ReportPDFView = React.forwardRef<HTMLDivElement, ReportPDFViewProps
             {[
               { label: "CGPA / Grade", value: s.cgpa ? `${s.cgpa} / 10${s.originalGrade && s.originalGrade !== `${s.cgpa}` ? ` (${s.originalGrade})` : ''}` : "N/A", highlight: true },
               { label: "Degree Goal", value: s.degreeObjective || "Master's" },
+              { label: "Preferred Course", value: s.targetCourse || s.exactCourse || s.primaryDomain || "General", highlight: Boolean(s.targetCourse || s.exactCourse) },
               { label: "Target Country", value: s.destinationCountry || "General" },
               { label: "Target Intake", value: s.targetIntake || "Next Intake" },
               { label: "Domain", value: s.primaryDomain || "General" },
@@ -386,7 +392,6 @@ export const ReportPDFView = React.forwardRef<HTMLDivElement, ReportPDFViewProps
               { 
                 label: "Language & Aptitude Tests", 
                 value: s.testScores || "Not specified", 
-                colSpan: 2 
               },
             ].map((kpi, idx) => (
               <div
@@ -396,7 +401,7 @@ export const ReportPDFView = React.forwardRef<HTMLDivElement, ReportPDFViewProps
                   borderRadius: "14px",
                   border: `1px solid ${c.border}`,
                   padding: "12px 14px",
-                  gridColumn: kpi.colSpan ? `span ${kpi.colSpan}` : undefined,
+                  gridColumn: (kpi as any).colSpan ? `span ${(kpi as any).colSpan}` : undefined,
                   display: "flex",
                   flexDirection: "column",
                   justifyContent: "center",
@@ -749,6 +754,52 @@ export const ReportPDFView = React.forwardRef<HTMLDivElement, ReportPDFViewProps
                             </a>
                           </div>
                         )}
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: "4px", marginTop: "4px" }}>
+                          {uni.scholarshipAvailable && (
+                            <span
+                              style={{
+                                fontSize: "8px",
+                                fontWeight: 800,
+                                textTransform: "uppercase",
+                                padding: "1px 5px",
+                                borderRadius: "4px",
+                                backgroundColor: isDark ? "rgba(16, 185, 129, 0.2)" : "#ECFDF5",
+                                color: "#10B981",
+                                border: "1px solid rgba(16, 185, 129, 0.4)"
+                              }}
+                            >
+                              Scholarship
+                            </span>
+                          )}
+                          {uni.duration && (
+                            <span
+                              style={{
+                                fontSize: "8px",
+                                fontWeight: 700,
+                                padding: "1px 5px",
+                                borderRadius: "4px",
+                                backgroundColor: isDark ? "rgba(255, 255, 255, 0.06)" : "#F1F5F9",
+                                color: c.textSecondary,
+                              }}
+                            >
+                              ⏱️ {uni.duration}
+                            </span>
+                          )}
+                          {(uni.ieltsScore || uni.pteScore || uni.toeflScore) && (
+                            <span
+                              style={{
+                                fontSize: "8px",
+                                fontWeight: 700,
+                                padding: "1px 5px",
+                                borderRadius: "4px",
+                                backgroundColor: isDark ? "rgba(255, 255, 255, 0.06)" : "#F1F5F9",
+                                color: c.textDim,
+                              }}
+                            >
+                              {uni.ieltsScore ? `IELTS ${uni.ieltsScore}` : ''}{uni.pteScore ? ` PTE ${uni.pteScore}` : ''}
+                            </span>
+                          )}
+                        </div>
                         <div
                           style={{
                             fontSize: "9.5px",
