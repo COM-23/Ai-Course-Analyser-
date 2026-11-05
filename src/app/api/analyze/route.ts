@@ -2237,8 +2237,10 @@ Student: ${extractedName}${contactInfo ? ` | Contact: ${contactInfo}` : ''} | Go
             if (!isCloudEnv) {
                 // On-premise local server: ALWAYS prioritize direct local Ollama on loopback / LAN
                 rawCandidates.push(
+                    'http://192.168.0.56:11434/api/generate',
                     'http://127.0.0.1:11434/api/generate',
                     'http://192.168.0.80:11434/api/generate',
+                    'http://192.168.0.56:11435/api/generate',
                     'http://127.0.0.1:11435/api/generate',
                     'http://192.168.0.80:11435/api/generate'
                 );

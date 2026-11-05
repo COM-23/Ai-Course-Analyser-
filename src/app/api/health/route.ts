@@ -91,7 +91,7 @@ export async function GET(req: Request) {
   if (!configuredEndpoint) {
     configuredEndpoint = isCloudEnv
       ? 'https://publicly-suggest-percent-relevant.trycloudflare.com/api/generate'
-      : 'http://192.168.0.80:11434/api/generate';
+      : 'http://192.168.0.56:11434/api/generate';
   }
 
   // 6. Filter out any obsolete or dead placeholders
@@ -105,7 +105,7 @@ export async function GET(req: Request) {
   )) {
     configuredEndpoint = isCloudEnv
       ? 'https://publicly-suggest-percent-relevant.trycloudflare.com/api/generate'
-      : 'http://192.168.0.80:11434/api/generate';
+      : 'http://192.168.0.56:11434/api/generate';
   }
 
   // 7. Normalize configuredEndpoint if present
@@ -178,8 +178,10 @@ export async function GET(req: Request) {
         'https://publicly-suggest-percent-relevant.trycloudflare.com/api/generate'
       ].filter(Boolean)
     : [
+        'http://192.168.0.56:11434/api/generate',
         'http://127.0.0.1:11434/api/generate',
         'http://192.168.0.80:11434/api/generate',
+        'http://192.168.0.56:11435/api/generate',
         'http://127.0.0.1:11435/api/generate',
         'http://192.168.0.80:11435/api/generate',
         ...configuredVariants

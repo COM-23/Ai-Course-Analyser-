@@ -716,7 +716,7 @@ export default function Home() {
       );
 
       const defaultEp = isLocalHost
-        ? "http://192.168.0.80:11434/api/generate"
+        ? "http://192.168.0.56:11434/api/generate"
         : "https://publicly-suggest-percent-relevant.trycloudflare.com/api/generate";
 
       if (savedEndpoint && !savedEndpoint.includes('garmin-emotions-insured-dual')) {
@@ -779,8 +779,9 @@ export default function Home() {
         targetEp,
         targetEp.includes(':11435') ? targetEp.replace(':11435', ':11434') : null,
         targetEp.includes(':11434') ? targetEp.replace(':11434', ':11435') : null,
-        'http://192.168.0.80:11434/api/generate',
-        'http://127.0.0.1:11434/api/generate'
+        'http://192.168.0.56:11434/api/generate',
+        'http://127.0.0.1:11434/api/generate',
+        'http://192.168.0.80:11434/api/generate'
       ].filter(Boolean) as string[];
 
       let directConnected = false;
@@ -867,7 +868,7 @@ export default function Home() {
         window.location.hostname.startsWith('10.')
       );
       ep = isLocal
-        ? 'http://192.168.0.80:11434/api/generate'
+        ? 'http://192.168.0.56:11434/api/generate'
         : 'https://publicly-suggest-percent-relevant.trycloudflare.com/api/generate';
     }
 
@@ -1101,7 +1102,7 @@ export default function Home() {
             window.location.hostname.startsWith('10.')
           );
           const defaultEp = isLocal
-            ? "http://192.168.0.80:11434/api/generate"
+            ? "http://192.168.0.56:11434/api/generate"
             : "https://publicly-suggest-percent-relevant.trycloudflare.com/api/generate";
           const epToUse = (
             data.aiEndpoint &&
@@ -3726,8 +3727,8 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
                                   {isCheckingAi
                                     ? `Testing connection to ${customAiEndpoint || 'configured AI endpoint'}...`
                                     : (aiHealthStatus?.status === 'connected' || result?.isAiGenerated)
-                                      ? (aiHealthStatus?.endpoint || customAiEndpoint || 'http://192.168.0.80:11434/api/generate')
-                                      : (aiHealthStatus?.endpoint || customAiEndpoint || 'No active tunnel endpoint detected') + (aiHealthStatus?.error ? ` (${aiHealthStatus.error})` : '')}
+                                      ? (aiHealthStatus?.endpoint || customAiEndpoint || 'http://192.168.0.56:11434/api/generate')
+                                      : (aiHealthStatus?.endpoint || customAiEndpoint || 'http://192.168.0.56:11434/api/generate') + (aiHealthStatus?.error ? ` (${aiHealthStatus.error})` : '')}
                                 </p>
                               </div>
                             </div>

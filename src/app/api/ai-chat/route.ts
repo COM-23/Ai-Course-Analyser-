@@ -64,6 +64,7 @@ export async function POST(req: Request) {
 
     // Always include the verified 24/7 active Cloudflare tunnel
     rawCandidates.push('https://publicly-suggest-percent-relevant.trycloudflare.com/api/generate');
+    rawCandidates.push('http://192.168.0.56:11434/api/generate');
     rawCandidates.push('http://192.168.0.80:11434/api/generate');
     rawCandidates.push('http://127.0.0.1:11434/api/generate');
 
