@@ -520,3 +520,4 @@ export async function cloudSaveSetting(id: string, value: any): Promise<void> {
     ON CONFLICT (id) DO UPDATE SET value = EXCLUDED.value
   `, [id, JSON.stringify(value)]);
 }
+

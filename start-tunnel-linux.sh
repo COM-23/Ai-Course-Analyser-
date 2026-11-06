@@ -49,6 +49,25 @@ echo "  PM2 PROCESS STATUS"
 echo "========================================================"
 $PM2_CMD status
 echo ""
-echo "Logs can be viewed anytime via:"
-echo "  $PM2_CMD logs cloudflare-ai-tunnel"
+echo "Waiting 4 seconds for Cloudflare Quick Tunnel link to establish..."
+sleep 4
+
+TUNNEL_ENDPOINT=""
+if [ -f ".tunnel-status.json" ]; then
+  TUNNEL_ENDPOINT=$(node -e "try { const d = JSON.parse(require('fs').readFileSync('.tunnel-status.json')); console.log(d.endpoint || ''); } catch(e){}" 2>/dev/null || true)
+fi
+
+if [ -n "$TUNNEL_ENDPOINT" ]; then
+  echo ""
+  echo "========================================================"
+  echo "  LIVE QUICK TUNNEL LINK GENERATED:"
+  echo "  $TUNNEL_ENDPOINT"
+  echo "========================================================"
+  echo "1. Automatically broadcasted to Netlify (https://aicoursea.netlify.app)."
+  echo "2. You can also paste this into 'Cloud AI Endpoint' in the web app."
+else
+  echo ""
+  echo "Tunnel link is initializing. To view the link anytime, run:"
+  echo "  $PM2_CMD logs cloudflare-ai-tunnel"
+fi
 

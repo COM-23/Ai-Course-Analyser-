@@ -113,7 +113,7 @@ function saveTunnelState(url) {
   }
 
   // 4. Automatically broadcast live endpoint to Netlify cloud deployment
-  const netlifyAppUrl = (process.env.NETLIFY_APP_URL || 'https://aicouresanalyser.netlify.app').replace(/\/+$/, '');
+  const netlifyAppUrl = (process.env.NETLIFY_APP_URL || 'https://aicoursea.netlify.app').replace(/\/+$/, '');
   try {
     const postPayload = JSON.stringify({ aiEndpoint: endpoint });
     const netlifyUrlObj = new URL(`${netlifyAppUrl}/api/settings`);

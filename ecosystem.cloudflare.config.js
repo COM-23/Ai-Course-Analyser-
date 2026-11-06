@@ -25,7 +25,7 @@ module.exports = {
       env: {
         NODE_ENV: "production",
         GATEWAY_PORT: 11435,
-        NETLIFY_APP_URL: "https://aicouresanalyser.netlify.app",
+        NETLIFY_APP_URL: "https://aicoursea.netlify.app",
         // If using Cloudflare Zero Trust Named Tunnel Token, uncomment below:
         // CLOUDFLARE_TUNNEL_TOKEN: "your_cloudflare_tunnel_token_here"
       },
