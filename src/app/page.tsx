@@ -50,6 +50,7 @@ import {
   PanelLeftClose,
   PanelLeft,
   GraduationCap,
+  User,
   LogOut
 } from "lucide-react";
 import * as htmlToImage from 'html-to-image';
@@ -538,6 +539,7 @@ export default function Home() {
     }).catch(() => {});
   };
 
+  const [studentName, setStudentName] = useState("");
   const [studentEmail, setStudentEmail] = useState("");
   const [studentPhone, setStudentPhone] = useState("");
   const [editingStudent, setEditingStudent] = useState<AnalysisResult | null>(null);
@@ -1406,6 +1408,7 @@ export default function Home() {
         destinationCountry,
         targetIntake: intake,
         targetCourse: preferredCourse.trim(),
+        name: studentName.trim(),
         email: studentEmail.trim(),
         phone: studentPhone.trim(),
         counselorId: currentUser ? currentUser.id : 1,
@@ -1458,6 +1461,9 @@ export default function Home() {
         alert("CRITICAL WARNING: The AI analysis succeeded, but saving to the database FAILED! Error: " + data.dbError + ". This means the student will disappear when you refresh. Please fix your database file permissions (it might be owned by root).");
       }
 
+      if (studentName.trim() && (!data.studentDetails?.name || data.studentDetails.name === "Unknown Student")) {
+        data.studentDetails = { ...(data.studentDetails || {}), name: studentName.trim() };
+      }
       if (studentEmail.trim() && (!data.studentDetails?.email || data.studentDetails.email === "Not Provided")) {
         data.studentDetails = { ...(data.studentDetails || {}), email: studentEmail.trim() };
       }
@@ -1488,6 +1494,9 @@ export default function Home() {
           endpoint: customAiEndpoint || 'Active Server AI',
           model: (finalData as any).aiModelUsed || 'llama3.1:latest'
         });
+      }
+      if (finalData?.studentDetails?.name && finalData.studentDetails.name !== "Unknown Student") {
+        setStudentName(finalData.studentDetails.name);
       }
       if (finalData?.studentDetails?.email && finalData.studentDetails.email !== "Not Provided") {
         setStudentEmail(finalData.studentDetails.email);
@@ -1719,6 +1728,7 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
     setManualText("");
     setAdditionalContext("");
     setPreferredCourse("");
+    setStudentName("");
     setStudentEmail("");
     setStudentPhone("");
     setError(null);
@@ -1736,6 +1746,7 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
   const handleViewStudent = (student: AnalysisResult) => {
     setResult(student);
     setPreferredCourse(student.studentDetails?.targetCourse || "");
+    setStudentName(student.studentDetails?.name && student.studentDetails.name !== "Unknown Student" ? student.studentDetails.name : "");
     setStudentEmail(student.studentDetails?.email && student.studentDetails.email !== "Not Provided" ? student.studentDetails.email : "");
     setStudentPhone(student.studentDetails?.phone && student.studentDetails.phone !== "Not Provided" ? student.studentDetails.phone : "");
     if (student.studentDetails?.originalContext) {
@@ -2341,6 +2352,18 @@ ${additionalContext ? `Counselor Notes: ${additionalContext}` : ''}`;
                     value={preferredCourse} 
                     onChange={(e) => setPreferredCourse(e.target.value)} 
                     placeholder="e.g. MSc Data Science, MBA, Cybersecurity" 
+                    className="w-full px-4 py-3 bg-black/40 border border-white/5 rounded-xl text-sm text-slate-200 outline-none focus:border-[#FC7133]/50 focus:ring-1 focus:ring-[#FC7133]/30 placeholder:text-slate-600 transition-all" 
+                  />
+                </div>
+                <div className="space-y-1.5 col-span-2 lg:col-span-1">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
+                    <User className="w-3 h-3 text-[#FC7133]" /> Student Name <span className="text-[9px] text-slate-600 font-normal">(Auto / Manual)</span>
+                  </label>
+                  <input 
+                    type="text" 
+                    value={studentName} 
+                    onChange={(e) => setStudentName(e.target.value)} 
+                    placeholder="e.g. Dishik" 
                     className="w-full px-4 py-3 bg-black/40 border border-white/5 rounded-xl text-sm text-slate-200 outline-none focus:border-[#FC7133]/50 focus:ring-1 focus:ring-[#FC7133]/30 placeholder:text-slate-600 transition-all" 
                   />
                 </div>

@@ -712,7 +712,7 @@ class LocalHeuristicBrain {
     }
   }
 
-  async analyze(text: string, context: string, manualCountry: string, manualIntake: string, aiStrictness: string = "standard", realtimeFetching: boolean = false, customAiEndpoint: string = "", isComparison: boolean = false, requestedModel: string = "", clientProvidedApiKey: string = "", manualEmail: string = "", manualPhone: string = "", manualTargetCourse: string = "") {
+  async analyze(text: string, context: string, manualCountry: string, manualIntake: string, aiStrictness: string = "standard", realtimeFetching: boolean = false, customAiEndpoint: string = "", isComparison: boolean = false, requestedModel: string = "", clientProvidedApiKey: string = "", manualEmail: string = "", manualPhone: string = "", manualTargetCourse: string = "", manualName: string = "") {
     // Strictly identify real cloud serverless environments (Netlify / Vercel / AWS Lambda)
     const isCloudEnv = !!(
       process.env.NETLIFY ||
@@ -809,43 +809,71 @@ class LocalHeuristicBrain {
 
     // 1. EXTRACT NAME
     let extractedName = "Unknown Student";
-    // Check explicit name markers (e.g., "student Name : Radha", "Name: Chandra Sekhar", "Student: John Doe")
-    const nameMatch = lowerText.match(/(?:my name is|i am|this is|student name|candidate name|applicant name|student|name)\s*[:=\-]\s*(?:(?:dr|mr|ms|mrs|prof)\.?\s+)?([a-z\.'-]+(?:[ \t]+[a-z\.'-]+){0,3})/i);
-    
-    if (nameMatch && nameMatch[1]) {
-       // Clean trailing punctuation and Title Case the extracted name
-       extractedName = nameMatch[1].replace(/[,;:]+$/, '').replace(/\b\w/g, l => l.toUpperCase()).trim();
+    if (manualName && manualName.trim()) {
+      extractedName = manualName.trim().replace(/\b\w/g, l => l.toUpperCase());
     } else {
-       // Fast Resume Header Parser: Resumes almost always place candidate's full name at the very top (first 1-4 lines)
-       const targetText = text.trim() || context.trim();
-       const lines = targetText.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
-       const genericBlacklist = [
-           "resume", "curriculum", "vitae", "cv", "profile", "contact", "portfolio", 
-           "summary", "professional", "education", "experience", "technical", "skills", 
-           "projects", "certifications", "portal", "student", "applicant", "application",
-           "details", "about", "objective", "work", "career", "overview", "course", "passport", "ielts", "backlogs",
-           "phone", "mobile", "email", "mail", "tel", "call", "budget", "intake", "country", "preferred", "target"
-       ];
+      const stopWords = new Set([
+        "wanna", "want", "looking", "planning", "interested", "seeking", "applying", 
+        "pursuing", "having", "with", "completed", "graduated", "from", "who", "and", 
+        "i", "currently", "studied", "done", "here", "can", "please", "would", "like", 
+        "to", "am", "is", "a", "an", "the", "for", "in", "at", "my"
+      ]);
 
-       for (let i = 0; i < Math.min(lines.length, 5); i++) {
-           const line = lines[i];
-           // Must not contain email, URL, phone number patterns
-           if (line.includes('@') || line.includes('http') || line.includes('.com') || line.includes('.org') || /\d{5,}/.test(line)) {
-               continue;
-           }
-           // Remove title/prefix if any and keep alpha/space/dash
-           const cleanLine = line.replace(/^(?:dr\.?|mr\.?|ms\.?|mrs\.?)\s+/i, '').replace(/[^a-zA-Z\s'-]/g, ' ').trim();
-           const words = cleanLine.split(/\s+/).filter(w => w.length >= 2);
-           
-           // A human name is typically 1 to 4 alphabetical words
-           if (words.length >= 1 && words.length <= 4) {
-               const hasGeneric = words.some(w => genericBlacklist.includes(w.toLowerCase()));
-               if (!hasGeneric) {
-                   extractedName = words.map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
-                   break;
-               }
-           }
-       }
+      // Step 1a: Check explicit labeled name markers (e.g., "Student Name: Radha", "Name: Chandra Sekhar", "Student: John Doe")
+      const explicitMatch = lowerText.match(/(?:student\s+name|candidate\s+name|applicant\s+name|student|name)\s*[:=\-]\s*(?:(?:dr|mr|ms|mrs|prof)\.?\s+)?([a-z\.'-]+(?:[ \t]+[a-z\.'-]+){0,3})/i);
+      
+      // Step 1b: Check conversational natural language introductions (e.g., "my name is Dishik", "I am Dishik", "myself Dishik")
+      const convMatch = lowerText.match(/\b(?:my\s+name\s+is|name\s+is|i\s+am|i'm|this\s+is|myself|call\s+me)\s+(?:(?:dr|mr|ms|mrs|prof)\.?\s+)?([a-z\.'-]+(?:\s+[a-z\.'-]+){0,3})/i);
+
+      if (explicitMatch && explicitMatch[1]) {
+        extractedName = explicitMatch[1].replace(/[,;:]+$/, '').replace(/\b\w/g, l => l.toUpperCase()).trim();
+      } else if (convMatch && convMatch[1]) {
+        const rawTokens = convMatch[1].trim().split(/\s+/);
+        const validTokens: string[] = [];
+        for (const token of rawTokens) {
+          const cleanToken = token.replace(/[^a-zA-Z\.'-]/g, '').toLowerCase();
+          if (!cleanToken || stopWords.has(cleanToken)) break;
+          validTokens.push(token.replace(/[^a-zA-Z\.'-]/g, ''));
+        }
+        if (validTokens.length > 0) {
+          extractedName = validTokens.map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+        }
+      }
+
+      if (extractedName === "Unknown Student") {
+        // Fast Resume Header Parser: Resumes almost always place candidate's full name at the very top (first 1-4 lines)
+        const targetText = text.trim() || context.trim();
+        const lines = targetText.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
+        const genericBlacklist = [
+            "resume", "curriculum", "vitae", "cv", "profile", "contact", "portfolio", 
+            "summary", "professional", "education", "experience", "technical", "skills", 
+            "projects", "certifications", "portal", "student", "applicant", "application",
+            "details", "about", "objective", "work", "career", "overview", "course", "passport", "ielts", "backlogs",
+            "phone", "mobile", "email", "mail", "tel", "call", "budget", "intake", "country", "preferred", "target",
+            "lacs", "lac", "lakh", "lakhs", "crore", "crores", "million", "usd", "inr", "eur", "gbp", "aud", "cad", "nzd", "sgd",
+            "tuition", "fees", "cost", "scholarship", "waiver", "fund", "funds"
+        ];
+
+        for (let i = 0; i < Math.min(lines.length, 5); i++) {
+            const line = lines[i];
+            // Must not contain email, URL, phone number patterns
+            if (line.includes('@') || line.includes('http') || line.includes('.com') || line.includes('.org') || /\d{5,}/.test(line)) {
+                continue;
+            }
+            // Remove title/prefix if any and keep alpha/space/dash
+            const cleanLine = line.replace(/^(?:dr\.?|mr\.?|ms\.?|mrs\.?)\s+/i, '').replace(/[^a-zA-Z\s'-]/g, ' ').trim();
+            const words = cleanLine.split(/\s+/).filter(w => w.length >= 2);
+            
+            // A human name is typically 1 to 4 alphabetical words
+            if (words.length >= 1 && words.length <= 4) {
+                const hasGeneric = words.some(w => genericBlacklist.includes(w.toLowerCase()));
+                if (!hasGeneric) {
+                    extractedName = words.map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+                    break;
+                }
+            }
+        }
+      }
     }
 
     // 1.1 EXTRACT EMAIL
@@ -2559,6 +2587,7 @@ export async function POST(req: NextRequest) {
     targetIntake = body.targetIntake || body.manualIntake || "Not Decided";
     const manualEmail = (body.email || body.studentEmail || "").trim();
     const manualPhone = (body.phone || body.studentPhone || "").trim();
+    const manualName = (body.name || body.studentName || "").trim();
     const targetCourse = (body.targetCourse || body.preferredSubject || body.preferredCourse || "").trim();
 
     // Extract authenticated user for role-based counselor assignment
@@ -2646,8 +2675,11 @@ export async function POST(req: NextRequest) {
 
     // 2. USE THE CUSTOM INDEPENDENT BRAIN
     const brain = new LocalHeuristicBrain();
-    const analysis = await brain.analyze(extractedText, additionalContext || "", destinationCountry, targetIntake, aiStrictness, realtimeFetching, customAiEndpoint, isComparison, requestedModel, clientProvidedApiKey, manualEmail, manualPhone, targetCourse);
+    const analysis = await brain.analyze(extractedText, additionalContext || "", destinationCountry, targetIntake, aiStrictness, realtimeFetching, customAiEndpoint, isComparison, requestedModel, clientProvidedApiKey, manualEmail, manualPhone, targetCourse, manualName);
 
+    if (manualName) {
+      analysis.studentDetails.name = manualName;
+    }
     if (manualEmail) {
       analysis.studentDetails.email = manualEmail;
     }
