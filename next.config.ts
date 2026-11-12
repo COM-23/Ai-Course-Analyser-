@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ['@xenova/transformers', 'better-sqlite3', 'pdf-parse', 'node:sqlite'],
+  serverExternalPackages: ['better-sqlite3', 'pdf-parse', 'node:sqlite'],
   outputFileTracingIncludes: {
     '/**': [
       './students.db.gz',

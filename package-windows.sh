@@ -4,7 +4,7 @@ set -e
 ZIP_NAME="Ai-Course-Analyser-Windows.zip"
 echo "Creating $ZIP_NAME for Windows Server deployment..."
 
-rm -f "$ZIP_NAME" learn-overseas-windows.zip
+rm -f "$ZIP_NAME"
 
 zip -q -r "$ZIP_NAME" . \
   -x "node_modules/*" \
@@ -21,8 +21,6 @@ zip -q -r "$ZIP_NAME" . \
   -x "programs.raw.csv" \
   -x "programs.csv.enc" \
   -x "$ZIP_NAME"
-
-cp "$ZIP_NAME" "learn-overseas-windows.zip"
 
 echo "Package created successfully: $ZIP_NAME"
 ls -lh "$ZIP_NAME"
